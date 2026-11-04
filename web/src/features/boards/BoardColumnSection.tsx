@@ -1,11 +1,12 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 import type { BoardColumn, TaskFilters } from "../../api/client";
-import { Banner, Button, EmptyState, Panel, Skeleton } from "../../ui";
+import { Banner, Button, EmptyState, Panel, Skeleton, cx } from "../../ui";
 import { useTaskList } from "../tasks/api";
-import { TaskRow } from "../tasks/TaskRow";
+import { BoardRow } from "./BoardRow";
 import styles from "./BoardColumnSection.module.css";
+import { useDropColumn } from "./dnd/useDragHandles";
 
 const PAGE_SIZE = 100;
 
@@ -32,9 +33,15 @@ export function BoardColumnSection({
       open,
     );
   const tasks = data?.pages.flatMap((page) => page.items) ?? [];
+  const { attach, ...drop } = useDropColumn(column);
+  const line = <li className={styles.line} data-drop-line aria-hidden="true" />;
 
   return (
-    <Panel className={styles.section}>
+    <Panel
+      ref={attach}
+      className={cx(styles.section, drop.targeted && styles.sectionTarget)}
+      data-drop-column={column.id}
+    >
       <button
         type="button"
         className={styles.header}
@@ -57,17 +64,20 @@ export function BoardColumnSection({
       {open && !isPending && !isError && tasks.length === 0 && (
         <EmptyState title={column.is_done ? "Здесь пока пусто" : "Задач нет. Добавьте первую"} />
       )}
-      {open && tasks.length > 0 && (
+      {open && (tasks.length > 0 || drop.lineAfter === null) && (
         <ul className={styles.rows}>
+          {drop.lineAfter === null && line}
           {tasks.map((task) => (
-            <TaskRow
-              key={task.id}
-              task={task}
-              now={now}
-              timeZone={timeZone}
-              showBoard={false}
-              readOnly={readOnly}
-            />
+            <Fragment key={task.id}>
+              <BoardRow
+                task={task}
+                now={now}
+                timeZone={timeZone}
+                showBoard={false}
+                readOnly={readOnly}
+              />
+              {drop.lineAfter === task.id && line}
+            </Fragment>
           ))}
         </ul>
       )}

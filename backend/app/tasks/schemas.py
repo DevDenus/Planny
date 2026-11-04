@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Annotated, ClassVar, Literal, Self
+from typing import Annotated, Any, ClassVar, Literal, Self
 from uuid import UUID
 
 from pydantic import (
@@ -13,7 +13,7 @@ from pydantic import (
 
 from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.identity.schemas import UserSummary
-from app.tasks.models import BoardRole, BoardView
+from app.tasks.models import ActivityKind, BoardRole, BoardView
 
 BoardName = Annotated[str, Field(min_length=1, max_length=100)]
 BoardDescription = Annotated[str, Field(max_length=2000)]
@@ -22,6 +22,10 @@ TaskTitle = Annotated[str, Field(min_length=1, max_length=200)]
 TaskDescription = Annotated[str, Field(max_length=20000)]
 Priority = Annotated[int, Field(ge=1, le=4)]
 ChecklistText = Annotated[str, Field(min_length=1, max_length=500)]
+ColumnName = Annotated[str, Field(min_length=1, max_length=100)]
+LabelName = Annotated[str, Field(min_length=1, max_length=50)]
+CommentBody = Annotated[str, Field(min_length=1, max_length=5000)]
+LabelColor = Literal["violet", "blue", "teal", "green", "yellow", "orange", "red", "pink"]
 
 TaskStatus = Literal["open", "done", "all"]
 TaskScope = Literal["personal", "shared"]
@@ -99,6 +103,51 @@ class BoardColumnList(BaseModel):
     items: list[BoardColumn]
 
 
+class BoardColumnCreate(Input):
+    """`after_id` works as in a card move: null means the start, absent means the end."""
+
+    id: UUID | None = None
+    name: ColumnName
+    is_done: bool = False
+    after_id: UUID | None = None
+
+
+class BoardColumnUpdate(Patch):
+    not_nullable: ClassVar[frozenset[str]] = frozenset({"name", "is_done"})
+
+    name: ColumnName | None = None
+    is_done: bool | None = None
+
+
+class BoardColumnMove(Input):
+    after_id: UUID | None = None
+
+
+class Label(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    color: LabelColor
+
+
+class LabelList(BaseModel):
+    items: list[Label]
+
+
+class LabelCreate(Input):
+    id: UUID | None = None
+    name: LabelName
+    color: LabelColor
+
+
+class LabelUpdate(Patch):
+    not_nullable: ClassVar[frozenset[str]] = frozenset({"name", "color"})
+
+    name: LabelName | None = None
+    color: LabelColor | None = None
+
+
 class BoardMember(BaseModel):
     user: UserSummary
     role: BoardRole
@@ -142,8 +191,10 @@ class TaskSummary(BaseModel):
     due_at: datetime | None
     completed_at: datetime | None
     assignees: list[UserSummary]
+    labels: list[Label]
     checklist_total: int
     checklist_done: int
+    comments_count: int
     updated_at: datetime
 
 
@@ -187,20 +238,26 @@ class TaskCreate(Input, Deadline):
     description: TaskDescription | None = None
     priority: Priority = 3
     assignee_ids: list[UUID] = Field(default_factory=list)
+    label_ids: list[UUID] = Field(default_factory=list)
     checklist: list[ChecklistText] = Field(default_factory=list)
 
 
 class TaskUpdate(Patch, Deadline):
-    not_nullable: ClassVar[frozenset[str]] = frozenset({"title", "priority", "assignee_ids"})
+    not_nullable: ClassVar[frozenset[str]] = frozenset(
+        {"title", "priority", "assignee_ids", "label_ids"}
+    )
 
     version: int
     title: TaskTitle | None = None
     description: TaskDescription | None = None
     priority: Priority | None = None
     assignee_ids: list[UUID] | None = None
+    label_ids: list[UUID] | None = None
 
 
 class TaskMove(Input):
+    """`after_id`: null means the start of the column, absent means its end."""
+
     column_id: UUID
     after_id: UUID | None = None
 
@@ -225,6 +282,7 @@ class TaskFilters(BaseModel):
 
     board_id: UUID | None = None
     column_id: UUID | None = None
+    label_id: UUID | None = None
     scope: TaskScope | None = None
     assignee: Literal["me"] | UUID | None = None
     status: TaskStatus = "open"
@@ -235,6 +293,48 @@ class TaskFilters(BaseModel):
     sort: TaskSort = "due"
     limit: int = Field(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
     cursor: str | None = None
+
+
+class PageParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+    cursor: str | None = None
+
+
+class TaskComment(BaseModel):
+    id: UUID
+    author: UserSummary
+    body: str
+    created_at: datetime
+    edited_at: datetime | None
+
+
+class TaskCommentPage(BaseModel):
+    items: list[TaskComment]
+    next_cursor: str | None
+
+
+class TaskCommentCreate(Input):
+    id: UUID | None = None
+    body: CommentBody
+
+
+class TaskCommentUpdate(Input):
+    body: CommentBody
+
+
+class TaskActivity(BaseModel):
+    id: int
+    kind: ActivityKind
+    actor: UserSummary
+    data: dict[str, Any]
+    created_at: datetime
+
+
+class TaskActivityPage(BaseModel):
+    items: list[TaskActivity]
+    next_cursor: str | None
 
 
 class LastChange(BaseModel):

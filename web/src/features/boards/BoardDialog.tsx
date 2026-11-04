@@ -12,6 +12,7 @@ import {
   ConflictDialog,
   Dialog,
   IconButton,
+  SegmentedControl,
   SelectField,
   TextArea,
   TextField,
@@ -31,6 +32,7 @@ import {
 } from "./api";
 import { BOARD_ICONS } from "./BoardIcon";
 import styles from "./BoardDialog.module.css";
+import { BoardLabels } from "./BoardLabels";
 
 const ROLE_OPTIONS = (Object.keys(ROLE_LABELS) as BoardRole[]).map((value) => ({
   value,
@@ -180,7 +182,13 @@ export function BoardDialog({ board: fromPage, onClose }: BoardDialogProps) {
   );
 }
 
-type BoardFields = { name: string; description: string; icon: string };
+type BoardView = Board["default_view"];
+type BoardFields = { name: string; description: string; icon: string; view: BoardView };
+
+const VIEW_OPTIONS: { value: BoardView; label: string }[] = [
+  { value: "list", label: "Список" },
+  { value: "kanban", label: "Kanban" },
+];
 
 /** Only the fields the user changed, so an edit doesn't send back what someone else changed. */
 function changes(base: BoardFields, draft: BoardFields) {
@@ -190,6 +198,7 @@ function changes(base: BoardFields, draft: BoardFields) {
     ...(name !== base.name.trim() && { name }),
     ...(description !== (base.description.trim() || null) && { description }),
     ...(draft.icon !== base.icon && { icon: draft.icon }),
+    ...(draft.view !== base.view && { default_view: draft.view }),
   };
 }
 
@@ -205,6 +214,7 @@ function BoardForm({ board, onClose, onShowNew }: BoardFormProps) {
     name: board?.name ?? "",
     description: board?.description ?? "",
     icon: board?.icon ?? BOARD_ICONS[0]?.key ?? "list-checks",
+    view: board?.default_view ?? "list",
   }));
   const [version] = useState(board?.version ?? 1);
   // One id for the life of the form, so a retry after a lost response can't create a second board.
@@ -212,6 +222,7 @@ function BoardForm({ board, onClose, onShowNew }: BoardFormProps) {
   const [name, setName] = useState(base.name);
   const [description, setDescription] = useState(base.description);
   const [icon, setIcon] = useState(base.icon);
+  const [view, setView] = useState(base.view);
   const [nameError, setNameError] = useState<string>();
   const [conflict, setConflict] = useState<{ version: number } | null>(null);
 
@@ -221,7 +232,7 @@ function BoardForm({ board, onClose, onShowNew }: BoardFormProps) {
 
   const save = (expected: number) => {
     if (!board) return;
-    const body = changes(base, { name, description, icon });
+    const body = changes(base, { name, description, icon, view });
     if (Object.keys(body).length === 0) {
       onClose();
       return;
@@ -257,7 +268,7 @@ function BoardForm({ board, onClose, onShowNew }: BoardFormProps) {
         name: name.trim(),
         description: description.trim() || null,
         icon,
-        default_view: "list",
+        default_view: view,
       },
       { onSuccess: (created) => void navigate(`/boards/${created.id}`) },
     );
@@ -329,9 +340,26 @@ function BoardForm({ board, onClose, onShowNew }: BoardFormProps) {
           disabled={!canEdit}
           onChange={(event) => setDescription(event.target.value)}
         />
+        {canEdit && (
+          <div className={styles.view}>
+            <span className={styles.legend}>Вид по умолчанию</span>
+            <SegmentedControl
+              label="Вид по умолчанию"
+              value={view}
+              options={VIEW_OPTIONS}
+              onChange={setView}
+            />
+          </div>
+        )}
       </form>
 
       {board && <Members board={board} />}
+      {board && (
+        <BoardLabels
+          boardId={board.id}
+          canEdit={board.my_role !== "viewer" && board.archived_at === null}
+        />
+      )}
 
       {canArchive && (
         <Button

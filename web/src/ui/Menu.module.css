@@ -1,0 +1,94 @@
+/* The list is portalled to the body, so no scrolling column clips it. Its place comes from the CSS variables set in Menu.tsx. */
+.menu {
+  position: fixed;
+  top: var(--menu-top, auto);
+  right: var(--menu-right, auto);
+  bottom: var(--menu-bottom, auto);
+  left: var(--menu-left, auto);
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  max-width: min(20rem, calc(100vw - var(--space-8)));
+  max-height: calc(100dvh - var(--space-8));
+  padding: var(--space-1);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-raised);
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  width: 100%;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    color var(--transition);
+}
+
+.item:hover:not([aria-disabled="true"]) {
+  background: var(--surface-hover);
+}
+
+.item:active:not([aria-disabled="true"]) {
+  background: var(--surface-input);
+}
+
+.item:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+/* Declared after .item, so the danger colour wins over the default text colour. */
+.danger {
+  color: var(--state-error);
+}
+
+.danger:hover:not([aria-disabled="true"]) {
+  background: var(--state-error-fill);
+}
+
+/* Muted and not hoverable, but still focusable, so the hint can be read from the keyboard. */
+.item[aria-disabled="true"] {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.hint {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 767px) {
+  /* A bottom sheet. The inline variables never set top, left, right or bottom, so no !important is needed. */
+  .menu {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    min-width: 0;
+    max-width: none;
+    max-height: 80dvh;
+    padding: var(--space-2) var(--space-2) calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+    border: none;
+    border-top: 1px solid var(--border);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+
+  .item {
+    min-height: var(--control-height);
+  }
+}

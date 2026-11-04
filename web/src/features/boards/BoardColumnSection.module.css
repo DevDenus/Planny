@@ -55,3 +55,24 @@
   gap: var(--space-3);
   padding: var(--space-3);
 }
+
+.sectionTarget {
+  outline: 1px solid var(--accent-bright);
+}
+
+.line {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent-bright);
+  list-style: none;
+}
+
+.preview {
+  max-width: 320px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--accent-bright);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-raised);
+  cursor: grabbing;
+}

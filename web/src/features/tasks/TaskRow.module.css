@@ -11,6 +11,22 @@
   border-top: none;
 }
 
+.draggable {
+  cursor: grab;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.dragged {
+  opacity: 0.4;
+}
+
+.lifted {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: -2px;
+}
+
 .open {
   display: flex;
   flex: 1;

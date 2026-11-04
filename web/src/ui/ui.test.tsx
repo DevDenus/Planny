@@ -9,6 +9,7 @@ import {
   Checkbox,
   Dialog,
   IconButton,
+  Menu,
   PasswordField,
   SegmentedControl,
   SelectField,
@@ -17,7 +18,7 @@ import {
   ToastProvider,
   useToast,
 } from "./index";
-import type { BannerProps } from "./index";
+import type { BannerProps, MenuItem } from "./index";
 
 describe("Button", () => {
   it("is disabled and busy while loading", () => {
@@ -354,5 +355,162 @@ describe("Toast", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     expect(() => render(<ShowToastButton />)).toThrow("useToast must be used inside ToastProvider");
+  });
+});
+
+describe("Menu", () => {
+  /** Renders the menu and a button outside it, returns the trigger. */
+  function renderMenu(items: MenuItem[], parentClick?: () => void) {
+    render(
+      <div onClick={parentClick}>
+        <Menu label="Действия" items={items} />
+        <button type="button">Снаружи</button>
+      </div>,
+    );
+    return screen.getByRole("button", { name: "Действия" });
+  }
+
+  it("moves focus to the first enabled item when it opens", async () => {
+    const user = userEvent.setup();
+    const trigger = renderMenu([
+      { label: "Архив", onSelect: vi.fn(), disabled: true },
+      { label: "Открыть", onSelect: vi.fn() },
+    ]);
+
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    expect(screen.getByRole("menu", { name: "Действия" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Открыть" })).toHaveFocus();
+  });
+
+  it("moves between items with the arrows, Home and End", async () => {
+    const user = userEvent.setup();
+    const trigger = renderMenu([
+      { label: "Открыть", onSelect: vi.fn() },
+      { label: "Переименовать", onSelect: vi.fn() },
+      { label: "Удалить", onSelect: vi.fn(), danger: true },
+    ]);
+
+    await user.click(trigger);
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitem", { name: "Переименовать" })).toHaveFocus();
+
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    expect(screen.getByRole("menuitem", { name: "Открыть" })).toHaveFocus();
+
+    await user.keyboard("{ArrowUp}");
+    expect(screen.getByRole("menuitem", { name: "Удалить" })).toHaveFocus();
+
+    await user.keyboard("{Home}");
+    expect(screen.getByRole("menuitem", { name: "Открыть" })).toHaveFocus();
+
+    await user.keyboard("{End}");
+    expect(screen.getByRole("menuitem", { name: "Удалить" })).toHaveFocus();
+  });
+
+  it("closes on Escape and returns focus to the trigger", async () => {
+    const user = userEvent.setup();
+    const trigger = renderMenu([{ label: "Открыть", onSelect: vi.fn() }]);
+
+    await user.click(trigger);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+  });
+
+  it("closes on Tab and lets focus move on from the trigger", async () => {
+    const user = userEvent.setup();
+    const trigger = renderMenu([{ label: "Открыть", onSelect: vi.fn() }]);
+
+    await user.click(trigger);
+    await user.keyboard("{Tab}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Снаружи" })).toHaveFocus();
+  });
+
+  it("calls the chosen item once, closes, and has returned focus to the trigger by then", async () => {
+    const user = userEvent.setup();
+    let focusWhenSelected: Element | null = null;
+    const onSelect = vi.fn(() => {
+      focusWhenSelected = document.activeElement;
+    });
+    const trigger = renderMenu([{ label: "Открыть", onSelect }]);
+
+    await user.click(trigger);
+    await user.click(screen.getByRole("menuitem", { name: "Открыть" }));
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(focusWhenSelected).toBe(trigger);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("keeps a disabled item in the focus order, shows its hint, and never fires it", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const trigger = renderMenu([
+      { label: "Архив", onSelect, disabled: true, hint: "Сначала снимите все метки" },
+      { label: "Открыть", onSelect: vi.fn() },
+    ]);
+
+    await user.click(trigger);
+    const archive = screen.getByRole("menuitem", { name: "Архив" });
+    expect(archive).toHaveAttribute("aria-disabled", "true");
+    expect(archive).toHaveAccessibleDescription("Сначала снимите все метки");
+    expect(screen.getByText("Сначала снимите все метки")).toBeInTheDocument();
+
+    await user.keyboard("{ArrowUp}");
+    expect(archive).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
+  it("closes when a pointer goes down outside it", () => {
+    const trigger = renderMenu([{ label: "Открыть", onSelect: vi.fn() }]);
+
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Снаружи" }));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("leaves a dialog open on the Escape that closes the list, and closes it on the next", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(
+      <Dialog title="Карточка" onClose={onClose}>
+        <Menu label="Действия" items={[{ label: "Открыть", onSelect: vi.fn() }]} />
+      </Dialog>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Действия" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes when the trigger is pressed again", async () => {
+    const user = userEvent.setup();
+    const trigger = renderMenu([{ label: "Открыть", onSelect: vi.fn() }]);
+
+    await user.click(trigger);
+    await user.click(trigger);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("keeps its presses and clicks away from a parent", async () => {
+    const user = userEvent.setup();
+    const parentClick = vi.fn();
+    const trigger = renderMenu([{ label: "Открыть", onSelect: vi.fn() }], parentClick);
+
+    await user.click(trigger);
+    await user.click(screen.getByRole("menuitem", { name: "Открыть" }));
+    expect(parentClick).not.toHaveBeenCalled();
   });
 });

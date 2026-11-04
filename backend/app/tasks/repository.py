@@ -20,6 +20,7 @@ from sqlalchemy import (
     or_,
     select,
     tuple_,
+    update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, aliased
@@ -29,12 +30,15 @@ from app.tasks.models import (
     ActivityKind,
     Board,
     BoardColumn,
+    BoardLabel,
     BoardMember,
     BoardRole,
     ChecklistItem,
     Task,
     TaskActivity,
     TaskAssignee,
+    TaskComment,
+    TaskLabel,
 )
 from app.tasks.schemas import TaskScope, TaskSort, TaskStatus
 
@@ -167,6 +171,27 @@ async def columns_with_counts(
     return [(column, value) for column, value in rows]
 
 
+async def columns_of(db: AsyncSession, board_id: UUID) -> Sequence[BoardColumn]:
+    return (
+        await db.scalars(
+            select(BoardColumn)
+            .where(BoardColumn.board_id == board_id)
+            .order_by(BoardColumn.position)
+        )
+    ).all()
+
+
+async def column_task_count(db: AsyncSession, column_id: UUID) -> int:
+    return (
+        await db.scalar(
+            select(func.count())
+            .select_from(Task)
+            .where(Task.column_id == column_id, Task.deleted_at.is_(None))
+        )
+        or 0
+    )
+
+
 async def get_column(db: AsyncSession, column_id: UUID) -> BoardColumn | None:
     return await db.get(BoardColumn, column_id)
 
@@ -192,6 +217,108 @@ async def lock_first_column(db: AsyncSession, board_id: UUID, *, is_done: bool) 
     )
     assert column is not None  # noqa: S101  # a board always keeps both kinds of column
     return column
+
+
+async def cards_of_column(db: AsyncSession, column_id: UUID) -> Sequence[Task]:
+    """Soft-deleted cards too, in board order. Locked, so a card leaving the column right now
+    either has left or waits until this transaction is over."""
+    return (
+        await db.scalars(
+            select(Task)
+            .where(Task.column_id == column_id)
+            .order_by(Task.position)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+
+
+async def set_column_completion(
+    db: AsyncSession, column_id: UUID, completed_at: datetime | None
+) -> Sequence[UUID]:
+    """Soft-deleted cards stay out: nobody sees them, and nothing brings them back."""
+    result = await db.scalars(
+        update(Task)
+        .where(Task.column_id == column_id, Task.deleted_at.is_(None))
+        .values(completed_at=completed_at)
+        .returning(Task.id)
+        .execution_options(synchronize_session=False)
+    )
+    return result.all()
+
+
+# Labels. The rows a card uses are locked FOR KEY SHARE, the same lock its foreign key takes, so
+# a label being deleted either waits for the card or is already gone from this read.
+
+
+async def labels_of_board(db: AsyncSession, board_id: UUID) -> Sequence[BoardLabel]:
+    return (
+        await db.scalars(
+            select(BoardLabel)
+            .where(BoardLabel.board_id == board_id)
+            .order_by(BoardLabel.name, BoardLabel.id)
+        )
+    ).all()
+
+
+async def get_label(db: AsyncSession, label_id: UUID) -> BoardLabel | None:
+    return await db.get(BoardLabel, label_id)
+
+
+async def label_named(db: AsyncSession, board_id: UUID, name: str) -> BoardLabel | None:
+    return await db.scalar(
+        select(BoardLabel).where(BoardLabel.board_id == board_id, BoardLabel.name == name)
+    )
+
+
+async def lock_label(db: AsyncSession, board_id: UUID, label_id: UUID) -> BoardLabel | None:
+    return await db.scalar(
+        select(BoardLabel)
+        .where(BoardLabel.id == label_id, BoardLabel.board_id == board_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+async def share_lock_labels(
+    db: AsyncSession, board_id: UUID, label_ids: Collection[UUID]
+) -> Sequence[BoardLabel]:
+    if not label_ids:
+        return []
+    return (
+        await db.scalars(
+            select(BoardLabel)
+            .where(BoardLabel.id.in_(label_ids), BoardLabel.board_id == board_id)
+            .with_for_update(read=True, key_share=True)
+        )
+    ).all()
+
+
+async def labels_of(
+    db: AsyncSession, task_ids: Collection[UUID]
+) -> Sequence[tuple[UUID, BoardLabel]]:
+    if not task_ids:
+        return []
+    rows = await db.execute(
+        select(TaskLabel.task_id, BoardLabel)
+        .join(BoardLabel, BoardLabel.id == TaskLabel.label_id)
+        .where(TaskLabel.task_id.in_(task_ids))
+        .order_by(BoardLabel.name, BoardLabel.id)
+    )
+    return [(task_id, label) for task_id, label in rows]
+
+
+async def remove_task_labels(db: AsyncSession, task_id: UUID, label_ids: Collection[UUID]) -> None:
+    await db.execute(
+        delete(TaskLabel).where(TaskLabel.task_id == task_id, TaskLabel.label_id.in_(label_ids))
+    )
+
+
+async def remove_label_links(db: AsyncSession, label_id: UUID) -> Sequence[UUID]:
+    result = await db.scalars(
+        delete(TaskLabel).where(TaskLabel.label_id == label_id).returning(TaskLabel.task_id)
+    )
+    return result.all()
 
 
 # Positions
@@ -339,6 +466,60 @@ async def get_checklist_item(db: AsyncSession, item_id: UUID) -> ChecklistItem |
     return await db.get(ChecklistItem, item_id)
 
 
+# Comments
+
+
+async def get_comment(db: AsyncSession, comment_id: UUID) -> TaskComment | None:
+    return await db.get(TaskComment, comment_id)
+
+
+async def comment_counts(db: AsyncSession, task_ids: Collection[UUID]) -> dict[UUID, int]:
+    if not task_ids:
+        return {}
+    rows = await db.execute(
+        select(TaskComment.task_id, func.count())
+        .where(TaskComment.task_id.in_(task_ids), TaskComment.deleted_at.is_(None))
+        .group_by(TaskComment.task_id)
+    )
+    return dict(rows.all())
+
+
+async def commenter_ids(db: AsyncSession, task_id: UUID) -> list[UUID]:
+    return list(
+        await db.scalars(
+            select(TaskComment.author_id)
+            .where(TaskComment.task_id == task_id, TaskComment.deleted_at.is_(None))
+            .distinct()
+        )
+    )
+
+
+async def list_comments(
+    db: AsyncSession, task_id: UUID, *, limit: int, after: tuple[datetime, UUID] | None
+) -> Sequence[TaskComment]:
+    """Oldest first: the feed reads like a conversation."""
+    query = select(TaskComment).where(
+        TaskComment.task_id == task_id, TaskComment.deleted_at.is_(None)
+    )
+    if after is not None:
+        place = tuple_(literal(after[0], DateTime(timezone=True)), literal(after[1], Uuid()))
+        query = query.where(tuple_(TaskComment.created_at, TaskComment.id) > place)
+    rows = await db.scalars(query.order_by(TaskComment.created_at, TaskComment.id).limit(limit))
+    return rows.all()
+
+
+# History
+
+
+async def list_activity(
+    db: AsyncSession, task_id: UUID, *, limit: int, before: int | None
+) -> Sequence[TaskActivity]:
+    query = select(TaskActivity).where(TaskActivity.task_id == task_id)
+    if before is not None:
+        query = query.where(TaskActivity.id < before)
+    return (await db.scalars(query.order_by(TaskActivity.id.desc()).limit(limit))).all()
+
+
 async def last_activity(db: AsyncSession, task_id: UUID) -> TaskActivity | None:
     return await db.scalar(
         select(TaskActivity)
@@ -386,6 +567,7 @@ class TaskQuery:
     period_end: datetime | None
     board_id: UUID | None
     column_id: UUID | None
+    label_id: UUID | None
     scope: TaskScope | None
     assignee_id: UUID | None
     status: TaskStatus
@@ -419,6 +601,10 @@ def _task_conditions(query: TaskQuery) -> list[ColumnElement[bool]]:
             exists().where(
                 TaskAssignee.task_id == Task.id, TaskAssignee.user_id == query.assignee_id
             )
+        )
+    if query.label_id is not None:
+        conditions.append(
+            exists().where(TaskLabel.task_id == Task.id, TaskLabel.label_id == query.label_id)
         )
     if query.status == "open":
         conditions.append(Task.completed_at.is_(None))

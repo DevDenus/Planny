@@ -225,3 +225,7 @@ deploy/backup/dumps/
 # Frontend
 node_modules/
 *.tsbuildinfo
+
+# Playwright
+web/test-results/
+web/playwright-report/

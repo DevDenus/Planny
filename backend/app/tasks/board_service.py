@@ -1,5 +1,5 @@
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -41,12 +41,23 @@ async def access(principal: Principal, db: AsyncSession, board_id: UUID) -> Boar
     return BoardAccess(board, role)
 
 
-async def _locked_access(principal: Principal, db: AsyncSession, board_id: UUID) -> BoardAccess:
+async def locked_access(principal: Principal, db: AsyncSession, board_id: UUID) -> BoardAccess:
     board = await repository.lock_board(db, board_id)
     role = await repository.get_role(db, board_id, principal.user_id) if board else None
     if board is None or role is None:
         raise not_found()
     return BoardAccess(board, role)
+
+
+async def publish(
+    db: AsyncSession, *board_ids: UUID, notified: Collection[UUID] | None = None
+) -> None:
+    """Call last in a transaction: see sync.bump."""
+    await db.flush()
+    members: set[UUID] = set()
+    for board_id in board_ids:
+        members |= set(await repository.member_ids(db, board_id))
+    await sync.bump(db, tasks_for=members, notifications_for=notified or ())
 
 
 def require_writable(target: BoardAccess) -> None:
@@ -153,7 +164,7 @@ async def create_board(
 async def update_board(
     principal: Principal, db: AsyncSession, board_id: UUID, body: schemas.BoardUpdate
 ) -> schemas.Board:
-    target = await _locked_access(principal, db, board_id)
+    target = await locked_access(principal, db, board_id)
     _require_owner(target)
     board = target.board
     if board.version != body.version:
@@ -226,7 +237,7 @@ async def list_members(
 async def add_member(
     principal: Principal, db: AsyncSession, board_id: UUID, body: schemas.BoardMemberCreate
 ) -> schemas.BoardMember:
-    target = await _locked_access(principal, db, board_id)
+    target = await locked_access(principal, db, board_id)
     _require_owner(target)
     _require_active(target)
     existing = await repository.get_member(db, board_id, body.user_id)
@@ -270,7 +281,7 @@ async def update_member(
     user_id: UUID,
     body: schemas.BoardMemberUpdate,
 ) -> schemas.BoardMember:
-    target = await _locked_access(principal, db, board_id)
+    target = await locked_access(principal, db, board_id)
     _require_owner(target)
     _require_active(target)
     member = await repository.get_member(db, board_id, user_id)
@@ -296,7 +307,7 @@ async def remove_member(
         if board is None:
             return
     else:
-        target = await _locked_access(principal, db, board_id)
+        target = await locked_access(principal, db, board_id)
         _require_owner(target)
         _require_active(target)
         board = target.board

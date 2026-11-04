@@ -90,15 +90,36 @@ async def test_moving_after_itself_or_into_the_same_place_changes_nothing(
     assert (await move(client, headers, b, todo["id"], a["id"]))["position"] == b["position"]
 
 
-async def test_a_column_of_another_board_is_not_found_for_now(client: AsyncClient) -> None:
-    """Moves between boards arrive at stage 3."""
+async def test_a_move_without_after_id_goes_to_the_end(client: AsyncClient) -> None:
+    headers, todo, done = await setup_board(client)
+    moving = await create_task(client, headers, title="новая")
+    for title in ("a", "b"):
+        await create_task(client, headers, column_id=done["id"], title=title)
+    response = await client.post(
+        f"tasks/{moving['id']}/move", json={"column_id": done["id"]}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert await titles_in(client, headers, done["id"]) == ["a", "b", "новая"]
+    assert await titles_in(client, headers, todo["id"]) == []
+
+
+async def test_a_move_to_the_end_of_its_own_column_reorders_it(client: AsyncClient) -> None:
+    headers, todo, _ = await setup_board(client)
+    first = await create_task(client, headers, title="a")
+    await create_task(client, headers, title="b")
+    response = await client.post(
+        f"tasks/{first['id']}/move", json={"column_id": todo["id"]}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert await titles_in(client, headers, todo["id"]) == ["b", "a"]
+
+
+async def test_a_column_nobody_knows_is_not_found(client: AsyncClient) -> None:
     headers, _, _ = await setup_board(client)
     task = await create_task(client, headers)
-    other = (await client.post("boards", json={"name": "Покупки"}, headers=headers)).json()
-    other_column = (await columns(client, headers, other["id"]))[0]
     response = await client.post(
         f"tasks/{task['id']}/move",
-        json={"column_id": other_column["id"], "after_id": None},
+        json={"column_id": "0195f3a4-11aa-7bcd-8e01-3c2b1a0f9e8d", "after_id": None},
         headers=headers,
     )
     assert response.status_code == 404

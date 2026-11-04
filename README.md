@@ -30,6 +30,7 @@ docker compose --project-directory deploy -f deploy/compose.yaml -f deploy/compo
 | Команда | Что делает |
 |---|---|
 | `make test` | Тесты backend, BFF и SPA. Для backend сама поднимает одноразовую PostgreSQL |
+| `make e2e` | Сценарии в браузере на отдельном стеке со своей базой. Нужны Docker и `npx playwright install chromium` в `web/` |
 | `make lint` | Форматирование, линтеры и проверка типов |
 | `make format` | Исправляет форматирование |
 | `make openapi` | Обновляет `backend/openapi.json` и клиент API в `web/src/api/`. Нужна после изменения маршрутов, иначе CI упадёт |

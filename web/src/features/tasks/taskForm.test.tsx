@@ -1,8 +1,16 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Board, Task } from "../../api/client";
+import type {
+  Board,
+  BoardColumn,
+  Label,
+  Task,
+  TaskActivity,
+  TaskComment,
+  UserSummary,
+} from "../../api/client";
 import { TASKS_KEY } from "../../api/queryClient";
 import {
   API,
@@ -11,16 +19,21 @@ import {
   dayFromToday,
   json,
   makeBoard,
+  makeColumn,
+  makeLabel,
   makeTask,
   path,
   renderApp,
   requestsTo,
   stubApp,
   USER,
+  USER_SUMMARY,
   type Stub,
 } from "./testing";
 
 const TASKS = `${API}/tasks`;
+const BOARDS = `${API}/boards`;
+const ZHENYA: UserSummary = { id: "u2", display_name: "Женя", color: "pink" };
 
 beforeEach(() => {
   vi.unstubAllGlobals();
@@ -36,11 +49,26 @@ async function formDialog(name: "Задача" | "Новая задача"): Pro
   return screen.getByRole("dialog", { name });
 }
 
-function openTask(task: Task, options: { boards: Board[]; tasks?: Task[]; onRequest?: Stub }) {
+function openTask(
+  task: Task,
+  options: {
+    boards: Board[];
+    tasks?: Task[];
+    onRequest?: Stub;
+    columns?: BoardColumn[];
+    labels?: Label[];
+    comments?: TaskComment[];
+    activity?: TaskActivity[];
+  },
+) {
   const calls = stubApp({
     boards: options.boards,
     tasks: options.tasks ?? [task],
     onRequest: options.onRequest,
+    columns: options.columns,
+    labels: options.labels,
+    comments: options.comments,
+    activity: options.activity,
   });
   return { calls, ...renderApp(`/tasks?task=${task.id}`) };
 }
@@ -542,5 +570,363 @@ describe("edit", () => {
     const form = screen.getByRole("dialog", { name: "Задача" });
     expect(within(form).getByRole("textbox", { name: "Название" })).toHaveValue("Купить хлеб");
     expect(requestsTo(calls, "DELETE", `${TASKS}/${task.id}`)).toHaveLength(0);
+  });
+});
+
+/** A comment as the server lists it. */
+function commentOf(author: UserSummary, body: string, edited = false): TaskComment {
+  const now = new Date().toISOString();
+  return { id: crypto.randomUUID(), author, body, created_at: now, edited_at: edited ? now : null };
+}
+
+/** Answers the creation of a label on the board, and lists the label as the board does after it. */
+function creatingLabels(boardId: string, labels: Label[]): Stub {
+  return (request) => {
+    if (request.method !== "POST" || path(request) !== `${BOARDS}/${boardId}/labels`) {
+      return CREATED(request);
+    }
+    return bodyOf<{ name: string }>(request).then((body) => {
+      const label = makeLabel({ name: body.name });
+      labels.push(label);
+      return json(201, label);
+    });
+  };
+}
+
+describe("labels", () => {
+  it("sends the chosen labels with a new task", async () => {
+    const personal = makeBoard({ is_default: true });
+    const urgent = makeLabel({ name: "Срочно" });
+    const calls = stubApp({ boards: [personal], labels: [urgent], onRequest: CREATED });
+    renderApp("/tasks");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Новая задача" }));
+    const dialog = await formDialog("Новая задача");
+    await user.type(
+      await within(dialog).findByRole("textbox", { name: "Название" }),
+      "Купить хлеб",
+    );
+    await user.click(await within(dialog).findByRole("checkbox", { name: "Срочно" }));
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const [post] = requestsTo(calls, "POST", TASKS);
+    expect(await bodyOf(post!)).toMatchObject({ label_ids: [urgent.id] });
+  });
+
+  it("creates a label from the picker and ticks it", async () => {
+    const personal = makeBoard({ is_default: true });
+    const labels: Label[] = [];
+    const calls = stubApp({
+      boards: [personal],
+      labels,
+      onRequest: creatingLabels(personal.id, labels),
+    });
+    renderApp("/tasks");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Новая задача" }));
+    const dialog = await formDialog("Новая задача");
+    await user.click(await within(dialog).findByRole("button", { name: "Новая метка" }));
+    await user.type(within(dialog).getByRole("textbox", { name: "Название метки" }), "Важно");
+    await user.click(within(dialog).getByRole("button", { name: "Добавить метку" }));
+
+    expect(await within(dialog).findByRole("checkbox", { name: "Важно" })).toBeChecked();
+    const [post] = requestsTo(calls, "POST", `${BOARDS}/${personal.id}/labels`);
+    expect(await bodyOf(post!)).toEqual({ name: "Важно", color: "blue" });
+  });
+
+  it("does not submit the task when Enter is pressed in the new label's name", async () => {
+    const personal = makeBoard({ is_default: true });
+    const labels: Label[] = [];
+    const calls = stubApp({
+      boards: [personal],
+      labels,
+      onRequest: creatingLabels(personal.id, labels),
+    });
+    renderApp("/tasks");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Новая задача" }));
+    const dialog = await formDialog("Новая задача");
+    await user.click(await within(dialog).findByRole("button", { name: "Новая метка" }));
+    const name = within(dialog).getByRole("textbox", { name: "Название метки" });
+    await user.type(name, "Важно");
+    // A browser would submit the task form on Enter, unless the key press is cancelled. fireEvent
+    // reports false only for a cancelled key press, and user-event does not simulate that submit.
+    expect(fireEvent.keyDown(name, { key: "Enter" })).toBe(false);
+
+    // Enter adds the label, and only that: the task form stays as it was.
+    await waitFor(() =>
+      expect(requestsTo(calls, "POST", `${BOARDS}/${personal.id}/labels`)).toHaveLength(1),
+    );
+    expect(requestsTo(calls, "POST", TASKS)).toHaveLength(0);
+    expect(screen.getByRole("dialog", { name: "Новая задача" })).toBeInTheDocument();
+  });
+
+  it("sends the changed labels with the version", async () => {
+    const personal = makeBoard({ is_default: true });
+    const urgent = makeLabel({ name: "Срочно" });
+    const errands = makeLabel({ name: "Покупки" });
+    const task = makeTask({
+      board_id: personal.id,
+      title: "Купить хлеб",
+      version: 4,
+      labels: [urgent],
+    });
+    const { calls } = openTask(task, {
+      boards: [personal],
+      labels: [urgent, errands],
+      onRequest: SAVED,
+    });
+
+    const user = userEvent.setup();
+    const dialog = await formDialog("Задача");
+    await within(dialog).findByDisplayValue("Купить хлеб");
+    await user.click(await within(dialog).findByRole("checkbox", { name: "Покупки" }));
+    await user.click(within(dialog).getByRole("checkbox", { name: "Срочно" }));
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const [patch] = requestsTo(calls, "PATCH", `${TASKS}/${task.id}`);
+    expect(await bodyOf(patch!)).toEqual({ label_ids: [errands.id], version: 4 });
+  });
+
+  it("does not send the labels when they were not changed", async () => {
+    const personal = makeBoard({ is_default: true });
+    const urgent = makeLabel({ name: "Срочно" });
+    const task = makeTask({
+      board_id: personal.id,
+      title: "Купить хлеб",
+      version: 4,
+      labels: [urgent],
+    });
+    const { calls } = openTask(task, {
+      boards: [personal],
+      labels: [urgent],
+      onRequest: SAVED,
+    });
+
+    const user = userEvent.setup();
+    const dialog = await formDialog("Задача");
+    const title = await within(dialog).findByDisplayValue("Купить хлеб");
+    await within(dialog).findByRole("checkbox", { name: "Срочно" });
+    await user.clear(title);
+    await user.type(title, "Купить батон");
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const [patch] = requestsTo(calls, "PATCH", `${TASKS}/${task.id}`);
+    expect(await bodyOf(patch!)).toEqual({ title: "Купить батон", version: 4 });
+  });
+});
+
+describe("moving to another board", () => {
+  it("saves the changed fields first, then moves the card to the first open column there", async () => {
+    const personal = makeBoard({ is_default: true, name: "Личная" });
+    const family = makeBoard({ name: "Семья", is_shared: true, members: [USER_SUMMARY, ZHENYA] });
+    const todo = makeColumn({ name: "К выполнению", position: "a" });
+    const done = makeColumn({ name: "Готово", position: "b", is_done: true });
+    const urgent = makeLabel({ name: "Срочно" });
+    const task = makeTask({
+      board_id: personal.id,
+      column_id: todo.id,
+      title: "Купить хлеб",
+      version: 4,
+      labels: [urgent],
+    });
+    const { calls } = openTask(task, {
+      boards: [personal, family],
+      columns: [todo, done],
+      labels: [urgent],
+      onRequest: (request) => {
+        if (request.method === "PATCH") {
+          return json(200, makeTask({ ...task, title: "Купить батон", version: 5 }));
+        }
+        if (request.method === "POST" && path(request) === `${TASKS}/${task.id}/move`) {
+          return json(
+            200,
+            makeTask({ ...task, board_id: family.id, column_id: todo.id, labels: [], version: 6 }),
+          );
+        }
+        return undefined;
+      },
+    });
+
+    const user = userEvent.setup();
+    const dialog = await formDialog("Задача");
+    const title = await within(dialog).findByDisplayValue("Купить хлеб");
+    await user.clear(title);
+    await user.type(title, "Купить батон");
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Доска" }), family.id);
+
+    expect(
+      within(dialog).getByText(
+        "Метки сбросятся, а исполнители, которых нет на новой доске, будут сняты",
+      ),
+    ).toBeInTheDocument();
+    // The columns of the new board load after the change, and the first open one is then listed.
+    await within(dialog).findByRole("option", { name: "К выполнению" });
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const patches = requestsTo(calls, "PATCH", `${TASKS}/${task.id}`);
+    const moves = requestsTo(calls, "POST", `${TASKS}/${task.id}/move`);
+    expect(patches).toHaveLength(1);
+    expect(moves).toHaveLength(1);
+    expect(await bodyOf(patches[0]!)).toEqual({ title: "Купить батон", version: 4 });
+    expect(await bodyOf(moves[0]!)).toEqual({ column_id: todo.id, after_id: null });
+    expect(calls.indexOf(patches[0]!)).toBeLessThan(calls.indexOf(moves[0]!));
+  });
+});
+
+describe("comments and history", () => {
+  it("lists the comments and marks an edited one", async () => {
+    const personal = makeBoard({ is_default: true });
+    const task = makeTask({ board_id: personal.id, title: "Купить хлеб", comments_count: 2 });
+    openTask(task, {
+      boards: [personal],
+      comments: [commentOf(ZHENYA, "Возьми батон"), commentOf(USER_SUMMARY, "Хорошо", true)],
+    });
+
+    const dialog = await formDialog("Задача");
+    const feed = await within(dialog).findByRole("region", { name: "Комментарии и история" });
+    expect(await within(feed).findByText("Возьми батон")).toBeInTheDocument();
+    expect(within(feed).getByText("Хорошо")).toBeInTheDocument();
+    expect(within(feed).getAllByText("изменено")).toHaveLength(1);
+  });
+
+  it("opens the editor with the text a comment has now, after it changed while shown", async () => {
+    const personal = makeBoard({ is_default: true });
+    const task = makeTask({ board_id: personal.id, title: "Купить хлеб", comments_count: 1 });
+    const comments = [commentOf(USER_SUMMARY, "Хорошо")];
+    const { client } = openTask(task, { boards: [personal], comments });
+
+    const user = userEvent.setup();
+    const dialog = await formDialog("Задача");
+    const feed = await within(dialog).findByRole("region", { name: "Комментарии и история" });
+    await within(feed).findByText("Хорошо");
+
+    // Someone else changes the text, and the feed loads it again.
+    comments.splice(0, 1, { ...comments[0]!, body: "Хорошо, беру батон" });
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: [...TASKS_KEY, "comments"] });
+    });
+    expect(await within(feed).findByText("Хорошо, беру батон")).toBeInTheDocument();
+
+    await user.click(within(feed).getByRole("button", { name: "Изменить" }));
+
+    expect(within(feed).getByRole("textbox", { name: "Текст комментария" })).toHaveValue(
+      "Хорошо, беру батон",
+    );
+  });
+
+  it("posts a comment with an id, and sends the same id again after a failure", async () => {
+    const personal = makeBoard({ is_default: true });
+    const task = makeTask({ board_id: personal.id, title: "Купить хлеб" });
+    const url = `${TASKS}/${task.id}/comments`;
+    let posts = 0;
+    const { calls } = openTask(task, {
+      boards: [personal],
+      onRequest: (request) => {
+        if (request.method !== "POST" || path(request) !== url) return undefined;
+        posts += 1;
+        return posts === 1
+          ? apiError(500, "internal", "Комментарий не отправлен")
+          : json(201, commentOf(USER_SUMMARY, "Купить яйца"));
+      },
+    });
+
+    const user = userEvent.setup();
+    const dialog = await formDialog("Задача");
+    await user.type(
+      await within(dialog).findByRole("textbox", { name: "Новый комментарий" }),
+      "Купить яйца",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Отправить" }));
+    expect(await within(dialog).findByText("Комментарий не отправлен")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Отправить" }));
+
+    await waitFor(() => expect(requestsTo(calls, "POST", url)).toHaveLength(2));
+    const [first, second] = await Promise.all(
+      requestsTo(calls, "POST", url).map((request) => bodyOf(request)),
+    );
+    expect(first).toEqual({ id: expect.stringMatching(/^[0-9a-f-]{36}$/), body: "Купить яйца" });
+    expect(second!.id).toBe(first!.id);
+  });
+
+  it("gives a viewer no comment form, and no edit or delete on the comments", async () => {
+    const shared = makeBoard({ is_shared: true, my_role: "viewer", name: "Общая" });
+    const task = makeTask({ board_id: shared.id, title: "Купить хлеб" });
+    openTask(task, { boards: [shared], comments: [commentOf(USER_SUMMARY, "Мой комментарий")] });
+
+    const dialog = await formDialog("Задача");
+    expect(await within(dialog).findByText("Мой комментарий")).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("textbox", { name: "Новый комментарий" }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Изменить" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Удалить" })).not.toBeInTheDocument();
+  });
+
+  it("gives an editor edit and delete on an own comment, and nothing on someone else's", async () => {
+    const family = makeBoard({
+      is_shared: true,
+      my_role: "editor",
+      name: "Семья",
+      members: [USER_SUMMARY, ZHENYA],
+    });
+    const task = makeTask({ board_id: family.id, title: "Купить хлеб" });
+    openTask(task, {
+      boards: [family],
+      comments: [commentOf(USER_SUMMARY, "Мой"), commentOf(ZHENYA, "Чужой")],
+    });
+
+    const dialog = await formDialog("Задача");
+    const own = (await within(dialog).findByText("Мой")).closest("li")!;
+    const other = within(dialog).getByText("Чужой").closest("li")!;
+    expect(within(own).getByRole("button", { name: "Изменить" })).toBeInTheDocument();
+    expect(within(own).getByRole("button", { name: "Удалить" })).toBeInTheDocument();
+    expect(within(other).queryByRole("button", { name: "Изменить" })).not.toBeInTheDocument();
+    expect(within(other).queryByRole("button", { name: "Удалить" })).not.toBeInTheDocument();
+  });
+
+  it("lets an owner delete someone else's comment, but not edit it", async () => {
+    const family = makeBoard({ is_shared: true, name: "Семья", members: [USER_SUMMARY, ZHENYA] });
+    const task = makeTask({ board_id: family.id, title: "Купить хлеб" });
+    openTask(task, { boards: [family], comments: [commentOf(ZHENYA, "Чужой")] });
+
+    const dialog = await formDialog("Задача");
+    const other = (await within(dialog).findByText("Чужой")).closest("li")!;
+    expect(within(other).getByRole("button", { name: "Удалить" })).toBeInTheDocument();
+    expect(within(other).queryByRole("button", { name: "Изменить" })).not.toBeInTheDocument();
+  });
+
+  it("shows the history with the text of each record and the name of who did it", async () => {
+    const personal = makeBoard({ is_default: true });
+    const task = makeTask({ board_id: personal.id, title: "Купить хлеб" });
+    const now = new Date().toISOString();
+    const activity: TaskActivity[] = [
+      { id: 1, kind: "created", actor: ZHENYA, data: {}, created_at: now },
+      {
+        id: 2,
+        kind: "moved",
+        actor: USER_SUMMARY,
+        data: { from_column: "К выполнению", to_column: "Готово" },
+        created_at: now,
+      },
+    ];
+    openTask(task, { boards: [personal], activity });
+
+    const user = userEvent.setup();
+    const dialog = await formDialog("Задача");
+    await user.click(await within(dialog).findByRole("radio", { name: "История" }));
+
+    const created = (await within(dialog).findByText("Карточка создана")).closest("li")!;
+    expect(within(created).getByText(ZHENYA.display_name)).toBeInTheDocument();
+    const moved = within(dialog).getByText("Перенос: К выполнению → Готово").closest("li")!;
+    expect(within(moved).getByText(USER_SUMMARY.display_name)).toBeInTheDocument();
   });
 });
