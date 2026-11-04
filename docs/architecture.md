@@ -313,7 +313,7 @@ deploy/
   compose.prod.yaml    порты для сервера
   .env.example
   backup/
-design/                макеты
+design/                референсы стиля
 docs/                  эта документация
 ```
 
