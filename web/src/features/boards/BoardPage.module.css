@@ -4,6 +4,11 @@
   gap: var(--space-4);
 }
 
+/* Kanban scrolls inside its columns, so the page takes exactly the height of the screen. */
+.pageFull {
+  height: 100%;
+}
+
 .header {
   display: flex;
   flex-wrap: wrap;
@@ -74,6 +79,10 @@
 }
 
 @media (max-width: 767px) {
+  .pageFull {
+    height: auto;
+  }
+
   .newTask {
     display: none;
   }

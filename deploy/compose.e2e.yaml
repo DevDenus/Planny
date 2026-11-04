@@ -1,0 +1,8 @@
+# Browser tests: a project of its own, with its own database and port, so the tests never touch
+# the data of the dev stack. See `make e2e`.
+name: planny-e2e
+
+services:
+  bff:
+    ports:
+      - "127.0.0.1:18080:8080"

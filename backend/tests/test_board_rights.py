@@ -33,6 +33,14 @@ CASES = [
     Case("GET", "boards/{board}", GET_OK),
     Case("PATCH", "boards/{board}", OWNER_ONLY, {"version": 1, "description": "Новое"}),
     Case("GET", "boards/{board}/columns", GET_OK),
+    Case("POST", "boards/{board}/columns", CREATE_OK, {"name": "Колонка"}),
+    Case("PATCH", "boards/{board}/columns/{spare}", WRITE_OK, {"name": "Новое"}),
+    Case("DELETE", "boards/{board}/columns/{spare}", DELETE_OK),
+    Case("POST", "boards/{board}/columns/{spare}/move", WRITE_OK, {"after_id": None}),
+    Case("GET", "boards/{board}/labels", GET_OK),
+    Case("POST", "boards/{board}/labels", CREATE_OK, {"name": "Срочно", "color": "red"}),
+    Case("PATCH", "boards/{board}/labels/{label}", WRITE_OK, {"name": "Важно"}),
+    Case("DELETE", "boards/{board}/labels/{label}", DELETE_OK),
     Case("GET", "boards/{board}/members", GET_OK),
     Case("POST", "boards/{board}/members", OWNER_CREATE, {"user_id": "{newcomer}"}),
     Case("PATCH", "boards/{board}/members/{target}", OWNER_ONLY, {"role": "editor"}),
@@ -47,6 +55,11 @@ CASES = [
     Case("PATCH", "tasks/{task}/checklist/{item}", WRITE_OK, {"is_done": True}),
     Case("DELETE", "tasks/{task}/checklist/{item}", DELETE_OK),
     Case("POST", "tasks", CREATE_OK, {"title": "Новая", "board_id": "{board}"}),
+    Case("GET", "tasks/{task}/comments", GET_OK),
+    Case("POST", "tasks/{task}/comments", CREATE_OK, {"body": "Ответ"}),
+    Case("PATCH", "tasks/{task}/comments/{comment}", OWNER_ONLY, {"body": "Исправлено"}),
+    Case("DELETE", "tasks/{task}/comments/{comment}", OWNER_DELETE),
+    Case("GET", "tasks/{task}/activity", GET_OK),
 ]
 
 
@@ -60,7 +73,7 @@ def fill(template: Any, ids: dict[str, str]) -> Any:
 
 @pytest.fixture
 async def one_hash(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The matrix creates six users for each of its 68 cases: Argon2id would take minutes."""
+    """The matrix creates six users for each of its 120 cases: Argon2id would take minutes."""
     password_hash = await passwords.hash_password(PASSWORD)
 
     async def same_hash(_: str) -> str:
@@ -96,11 +109,31 @@ async def test_rights(client: AsyncClient, case: Case, role: str) -> None:
             f"tasks/{task['id']}/checklist", json={"text": "Пункт"}, headers=owner_headers
         )
     ).json()
+    label = (
+        await client.post(
+            f"boards/{board['id']}/labels",
+            json={"name": "Метка", "color": "blue"},
+            headers=owner_headers,
+        )
+    ).json()
+    comment = (
+        await client.post(
+            f"tasks/{task['id']}/comments", json={"body": "Текст"}, headers=owner_headers
+        )
+    ).json()
+    spare = (
+        await client.post(
+            f"boards/{board['id']}/columns", json={"name": "Ещё"}, headers=owner_headers
+        )
+    ).json()
 
     ids = {
         "board": board["id"],
         "task": task["id"],
         "item": item["id"],
+        "label": label["id"],
+        "comment": comment["id"],
+        "spare": spare["id"],
         "column": columns["items"][1]["id"],
         "target": str((await get_user("target")).id),
         "newcomer": str((await get_user("newcomer")).id),

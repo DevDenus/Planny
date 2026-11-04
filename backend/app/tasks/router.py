@@ -6,7 +6,14 @@ from fastapi import APIRouter, Query, status
 from app.core.db import DbSession
 from app.core.errors import ErrorResponse
 from app.identity.dependencies import CurrentPrincipal
-from app.tasks import board_service, schemas, task_service
+from app.tasks import (
+    board_service,
+    column_service,
+    comment_service,
+    label_service,
+    schemas,
+    task_service,
+)
 
 ERRORS: dict[int | str, dict[str, Any]] = {
     401: {"model": ErrorResponse},
@@ -51,6 +58,78 @@ async def list_columns(
     board_id: UUID, principal: CurrentPrincipal, db: DbSession
 ) -> schemas.BoardColumnList:
     return await board_service.list_columns(principal, db, board_id)
+
+
+@boards.post("/{board_id}/columns", status_code=status.HTTP_201_CREATED)
+async def create_column(
+    board_id: UUID, body: schemas.BoardColumnCreate, principal: CurrentPrincipal, db: DbSession
+) -> schemas.BoardColumn:
+    return await column_service.create_column(principal, db, board_id, body)
+
+
+@boards.patch("/{board_id}/columns/{column_id}")
+async def update_column(
+    board_id: UUID,
+    column_id: UUID,
+    body: schemas.BoardColumnUpdate,
+    principal: CurrentPrincipal,
+    db: DbSession,
+) -> schemas.BoardColumn:
+    return await column_service.update_column(principal, db, board_id, column_id, body)
+
+
+@boards.post("/{board_id}/columns/{column_id}/move")
+async def move_column(
+    board_id: UUID,
+    column_id: UUID,
+    body: schemas.BoardColumnMove,
+    principal: CurrentPrincipal,
+    db: DbSession,
+) -> schemas.BoardColumn:
+    return await column_service.move_column(principal, db, board_id, column_id, body)
+
+
+@boards.delete("/{board_id}/columns/{column_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_column(
+    board_id: UUID,
+    column_id: UUID,
+    principal: CurrentPrincipal,
+    db: DbSession,
+    move_to: UUID | None = None,
+) -> None:
+    await column_service.delete_column(principal, db, board_id, column_id, move_to)
+
+
+@boards.get("/{board_id}/labels")
+async def list_labels(
+    board_id: UUID, principal: CurrentPrincipal, db: DbSession
+) -> schemas.LabelList:
+    return await label_service.list_labels(principal, db, board_id)
+
+
+@boards.post("/{board_id}/labels", status_code=status.HTTP_201_CREATED)
+async def create_label(
+    board_id: UUID, body: schemas.LabelCreate, principal: CurrentPrincipal, db: DbSession
+) -> schemas.Label:
+    return await label_service.create_label(principal, db, board_id, body)
+
+
+@boards.patch("/{board_id}/labels/{label_id}")
+async def update_label(
+    board_id: UUID,
+    label_id: UUID,
+    body: schemas.LabelUpdate,
+    principal: CurrentPrincipal,
+    db: DbSession,
+) -> schemas.Label:
+    return await label_service.update_label(principal, db, board_id, label_id, body)
+
+
+@boards.delete("/{board_id}/labels/{label_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_label(
+    board_id: UUID, label_id: UUID, principal: CurrentPrincipal, db: DbSession
+) -> None:
+    await label_service.delete_label(principal, db, board_id, label_id)
 
 
 @boards.get("/{board_id}/members")
@@ -162,3 +241,51 @@ async def delete_checklist_item(
     task_id: UUID, item_id: UUID, principal: CurrentPrincipal, db: DbSession
 ) -> None:
     await task_service.delete_checklist_item(principal, db, task_id, item_id)
+
+
+@tasks.get("/{task_id}/comments")
+async def list_comments(
+    task_id: UUID,
+    params: Annotated[schemas.PageParams, Query()],
+    principal: CurrentPrincipal,
+    db: DbSession,
+) -> schemas.TaskCommentPage:
+    return await comment_service.list_comments(principal, db, task_id, params)
+
+
+@tasks.post("/{task_id}/comments", status_code=status.HTTP_201_CREATED)
+async def add_comment(
+    task_id: UUID,
+    body: schemas.TaskCommentCreate,
+    principal: CurrentPrincipal,
+    db: DbSession,
+) -> schemas.TaskComment:
+    return await comment_service.add_comment(principal, db, task_id, body)
+
+
+@tasks.patch("/{task_id}/comments/{comment_id}")
+async def update_comment(
+    task_id: UUID,
+    comment_id: UUID,
+    body: schemas.TaskCommentUpdate,
+    principal: CurrentPrincipal,
+    db: DbSession,
+) -> schemas.TaskComment:
+    return await comment_service.update_comment(principal, db, task_id, comment_id, body)
+
+
+@tasks.delete("/{task_id}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_comment(
+    task_id: UUID, comment_id: UUID, principal: CurrentPrincipal, db: DbSession
+) -> None:
+    await comment_service.delete_comment(principal, db, task_id, comment_id)
+
+
+@tasks.get("/{task_id}/activity")
+async def list_activity(
+    task_id: UUID,
+    params: Annotated[schemas.PageParams, Query()],
+    principal: CurrentPrincipal,
+    db: DbSession,
+) -> schemas.TaskActivityPage:
+    return await comment_service.list_activity(principal, db, task_id, params)

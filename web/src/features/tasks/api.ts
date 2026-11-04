@@ -13,6 +13,8 @@ import {
   unwrap,
   type ChecklistItem,
   type Task,
+  type TaskActivityPage,
+  type TaskCommentPage,
   type TaskCreate,
   type TaskFilters,
   type TaskPage,
@@ -159,8 +161,10 @@ export function useQuickAdd() {
         due_at: null,
         completed_at: null,
         assignees: [],
+        labels: [],
         checklist_total: 0,
         checklist_done: 0,
+        comments_count: 0,
         updated_at: new Date().toISOString(),
       };
       appendToLists(client, draft, target.showsIn);
@@ -207,10 +211,156 @@ export function useMoveTask() {
 
 type MoveInput = { id: string; columnId: string; afterId: string | null };
 
+/** The lists of a board are one per column, and the others only learn the new status. */
+function placeInLists(client: QueryClient, task: TaskSummary, afterId: string | null | undefined) {
+  for (const [key, data] of client.getQueriesData<Pages>({ queryKey: LISTS_KEY })) {
+    if (!data) continue;
+    const { column_id: columnId } = key.at(-1) as TaskFilters;
+    const pages = data.pages.map((page) => ({
+      ...page,
+      items:
+        columnId === undefined
+          ? page.items.map((item) => (item.id === task.id ? task : item))
+          : page.items.filter((item) => item.id !== task.id),
+    }));
+    if (columnId === task.column_id) {
+      const place = pages.findIndex((page) => page.items.some((item) => item.id === afterId));
+      // An anchor that isn't loaded means the end, as on the server.
+      const index = afterId === null ? 0 : place >= 0 ? place : pages.length - 1;
+      const page = pages[index];
+      if (page) {
+        const at = afterId === null ? 0 : page.items.findIndex((item) => item.id === afterId) + 1;
+        const end = place >= 0 || afterId === null ? at : page.items.length;
+        pages[index] = {
+          ...page,
+          items: [...page.items.slice(0, end), task, ...page.items.slice(end)],
+        };
+      }
+    }
+    client.setQueryData<Pages>(key, { ...data, pages });
+  }
+}
+
+export type CardMove = {
+  /** The card as it is now, drawn at the new place until the server answers. */
+  task: TaskSummary;
+  columnId: string;
+  columnIsDone: boolean;
+  /** Null is the start of the column, undefined the end. */
+  afterId: string | null | undefined;
+};
+
+const CARD_MOVE_KEY = ["move-card"] as const;
+
+/**
+ * For drags, where the move has to show at once. The refresh waits for the last of several
+ * quick moves, otherwise an older answer would put a card back for a moment.
+ */
+export function useMoveCard() {
+  const client = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationKey: CARD_MOVE_KEY,
+    mutationFn: ({ task, columnId, afterId }: CardMove) =>
+      unwrap(
+        api.POST("/api/v1/tasks/{task_id}/move", {
+          ...taskPath(task.id),
+          body: { column_id: columnId, after_id: afterId },
+        }),
+      ),
+    onMutate: async ({ task, columnId, columnIsDone, afterId }) => {
+      const snapshot = await beginOptimistic(client);
+      const completedAt = columnIsDone ? (task.completed_at ?? new Date().toISOString()) : null;
+      placeInLists(client, { ...task, column_id: columnId, completed_at: completedAt }, afterId);
+      return { snapshot };
+    },
+    onError: (error, _, context) => {
+      rollback(client, context?.snapshot);
+      toast.show(
+        error instanceof ApiError && error.status < 500
+          ? error.message
+          : "Не удалось перенести карточку",
+        "error",
+      );
+    },
+    onSettled: () =>
+      client.isMutating({ mutationKey: CARD_MOVE_KEY }) === 1 ? refresh(client) : undefined,
+  });
+}
+
 export function useDeleteTask() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => unwrap(api.DELETE("/api/v1/tasks/{task_id}", taskPath(id))),
+    onSuccess: () => refresh(client),
+  });
+}
+
+// Comments and history. Both grow from the side of the newest record.
+
+const commentsKey = (taskId: string) => [...TASKS_KEY, "comments", taskId] as const;
+const commentPath = (taskId: string, commentId: string) => ({
+  params: { path: { task_id: taskId, comment_id: commentId } },
+});
+
+export function useComments(taskId: string) {
+  return useInfiniteQuery({
+    queryKey: commentsKey(taskId),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }): Promise<TaskCommentPage> =>
+      unwrap(
+        api.GET("/api/v1/tasks/{task_id}/comments", {
+          params: { path: { task_id: taskId }, query: { cursor: pageParam } },
+        }),
+      ),
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  });
+}
+
+export function useActivity(taskId: string) {
+  return useInfiniteQuery({
+    queryKey: [...TASKS_KEY, "activity", taskId],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }): Promise<TaskActivityPage> =>
+      unwrap(
+        api.GET("/api/v1/tasks/{task_id}/activity", {
+          params: { path: { task_id: taskId }, query: { cursor: pageParam } },
+        }),
+      ),
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  });
+}
+
+export function useAddComment(taskId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { id: string; body: string }) =>
+      unwrap(api.POST("/api/v1/tasks/{task_id}/comments", { ...taskPath(taskId), body })),
+    onSuccess: () => refresh(client),
+  });
+}
+
+export function useUpdateComment(taskId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ commentId, body }: { commentId: string; body: string }) =>
+      unwrap(
+        api.PATCH("/api/v1/tasks/{task_id}/comments/{comment_id}", {
+          ...commentPath(taskId, commentId),
+          body: { body },
+        }),
+      ),
+    onSuccess: () => refresh(client),
+  });
+}
+
+export function useDeleteComment(taskId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (commentId: string) =>
+      unwrap(
+        api.DELETE("/api/v1/tasks/{task_id}/comments/{comment_id}", commentPath(taskId, commentId)),
+      ),
     onSuccess: () => refresh(client),
   });
 }

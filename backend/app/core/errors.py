@@ -107,6 +107,12 @@ def error_body(code: str, message: str, details: dict[str, Any] | None = None) -
     }
 
 
+def _field_name(location: tuple[int | str, ...]) -> str:
+    """Only the leading part names the request body: a comment has a field called `body`."""
+    parts = location[1:] if location[:1] == ("body",) else location
+    return ".".join(str(part) for part in parts)
+
+
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
@@ -116,8 +122,8 @@ def install_error_handlers(app: FastAPI) -> None:
     async def handle_validation(_: Request, exc: RequestValidationError) -> JSONResponse:
         # The rejected input is left out on purpose: it may be a password.
         fields = {
-            ".".join(str(part) for part in error["loc"] if part != "body"): (
-                VALIDATION_MESSAGES.get(error["type"], DEFAULT_VALIDATION_MESSAGE)
+            _field_name(error["loc"]): VALIDATION_MESSAGES.get(
+                error["type"], DEFAULT_VALIDATION_MESSAGE
             )
             for error in exc.errors()
         }

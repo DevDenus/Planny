@@ -17,6 +17,8 @@ export { IconButton } from "./IconButton";
 export type { IconButtonProps } from "./IconButton";
 export { Logo } from "./Logo";
 export type { LogoProps } from "./Logo";
+export { Menu } from "./Menu";
+export type { MenuItem, MenuProps } from "./Menu";
 export { Panel } from "./Panel";
 export type { PanelProps } from "./Panel";
 export { PasswordField } from "./PasswordField";

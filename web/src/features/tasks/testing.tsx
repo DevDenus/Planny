@@ -7,9 +7,12 @@ import type {
   Board,
   BoardColumn,
   CurrentUser,
+  Label,
   Notification,
   SyncState,
   Task,
+  TaskActivity,
+  TaskComment,
   UserSummary,
 } from "../../api/client";
 import { App } from "../../App";
@@ -150,14 +153,25 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     due_at: null,
     completed_at: null,
     assignees: [],
+    labels: [],
     checklist_total: checklist.length,
     checklist_done: checklist.filter((item) => item.is_done).length,
+    comments_count: 0,
     updated_at: now,
     description: null,
     checklist,
     created_by: USER_SUMMARY,
     version: 1,
     created_at: now,
+    ...overrides,
+  };
+}
+
+export function makeLabel(overrides: Partial<Label> = {}): Label {
+  return {
+    id: crypto.randomUUID(),
+    name: "Метка",
+    color: "blue",
     ...overrides,
   };
 }
@@ -183,6 +197,9 @@ export type AppStub = {
   tasks?: Task[];
   notifications?: Notification[];
   sync?: SyncState;
+  labels?: Label[];
+  comments?: TaskComment[];
+  activity?: TaskActivity[];
   /** Runs before the GET routes, a Response it returns is the answer. */
   onRequest?: Stub;
 };
@@ -225,6 +242,7 @@ function boardRoute(
   if (!board) return notFound();
   if (child === undefined) return json(200, board);
   if (child === "columns") return json(200, { items: data.columns });
+  if (child === "labels") return json(200, { items: data.labels });
   if (child === "members") {
     // The current user keeps the role the board gives them, other members are editors.
     const items = board.members.map((user) => ({
@@ -242,14 +260,19 @@ function taskRoute(
   id: string | undefined,
   child: string | undefined,
 ) {
-  if (child !== undefined) return unhandled(request);
   if (id === undefined) {
     const params = searchOf(request);
     const column = params.get("column_id");
+    const label = params.get("label_id");
+    // The API takes "me" for the current user, anything else is a user id.
+    const assigneeParam = params.get("assignee");
+    const assignee = assigneeParam === "me" ? USER.id : assigneeParam;
     const status = params.get("status") ?? "all";
     const items = data.tasks.filter(
       (task) =>
         (!column || task.column_id === column) &&
+        (!label || task.labels.some((item) => item.id === label)) &&
+        (!assignee || task.assignees.some((user) => user.id === assignee)) &&
         (status === "all" ||
           (status === "open" && task.completed_at === null) ||
           (status === "done" && task.completed_at !== null)),
@@ -257,7 +280,11 @@ function taskRoute(
     return json(200, { items, next_cursor: null });
   }
   const task = data.tasks.find((item) => item.id === id);
-  return task ? json(200, task) : notFound();
+  if (!task) return notFound();
+  if (child === undefined) return json(200, task);
+  if (child === "comments") return json(200, { items: data.comments, next_cursor: null });
+  if (child === "activity") return json(200, { items: data.activity, next_cursor: null });
+  return unhandled(request);
 }
 
 function answer(request: Request, data: AppData): Response {
@@ -291,11 +318,23 @@ export function stubApp({
   tasks = [],
   notifications = [],
   sync = { calendar: 0, tasks: 0, notifications: 0, unread_notifications: 0 },
+  labels = [],
+  comments = [],
+  activity = [],
   onRequest,
 }: AppStub = {}): Request[] {
   return stubBackend(async (request) => {
     const override = await onRequest?.(request);
     if (override) return override;
-    return answer(request, { boards, columns, tasks, notifications, sync });
+    return answer(request, {
+      boards,
+      columns,
+      tasks,
+      notifications,
+      sync,
+      labels,
+      comments,
+      activity,
+    });
   });
 }

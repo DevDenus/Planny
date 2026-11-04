@@ -91,13 +91,26 @@ class BoardMember(Base):
 
 class BoardColumn(Timestamps, Base):
     __tablename__ = "board_column"
-    __table_args__ = (UniqueConstraint("board_id", "id"),)
+    __table_args__ = (
+        UniqueConstraint("board_id", "id"),
+        UniqueConstraint("board_id", "position"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=new_id)
     board_id: Mapped[UUID] = mapped_column(ForeignKey("board.id"))
     name: Mapped[str] = mapped_column(Text)
     position: Mapped[str] = mapped_column(POSITION)
     is_done: Mapped[bool] = mapped_column(default=False)
+
+
+class BoardLabel(Timestamps, Base):
+    __tablename__ = "board_label"
+    __table_args__ = (UniqueConstraint("board_id", "name"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_id)
+    board_id: Mapped[UUID] = mapped_column(ForeignKey("board.id"))
+    name: Mapped[str] = mapped_column(Text)
+    color: Mapped[str] = mapped_column(Text)
 
 
 class Task(Timestamps, Base):
@@ -145,6 +158,28 @@ class TaskAssignee(Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("app_user.id"), primary_key=True)
     assigned_by: Mapped[UUID] = mapped_column(ForeignKey("app_user.id"))
     created_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=func.now())
+
+
+class TaskLabel(Base):
+    """A label is on the board of its card: the card lock in the service guarantees that."""
+
+    __tablename__ = "task_label"
+    __table_args__ = (Index("ix_task_label_label_id", "label_id"),)
+
+    task_id: Mapped[UUID] = mapped_column(ForeignKey("task.id"), primary_key=True)
+    label_id: Mapped[UUID] = mapped_column(ForeignKey("board_label.id"), primary_key=True)
+
+
+class TaskComment(Timestamps, Base):
+    __tablename__ = "task_comment"
+    __table_args__ = (Index("ix_task_comment_task_id_created_at", "task_id", "created_at"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_id)
+    task_id: Mapped[UUID] = mapped_column(ForeignKey("task.id"))
+    author_id: Mapped[UUID] = mapped_column(ForeignKey("app_user.id"))
+    body: Mapped[str] = mapped_column(Text)
+    edited_at: Mapped[datetime | None]
+    deleted_at: Mapped[datetime | None]
 
 
 class ChecklistItem(Timestamps, Base):

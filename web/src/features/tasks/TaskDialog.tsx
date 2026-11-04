@@ -18,7 +18,7 @@ import {
   TextField,
 } from "../../ui";
 import { useCurrentUser } from "../auth/session";
-import { useBoard, useBoards, useColumns, useMembers } from "../boards/api";
+import { useBoard, useBoards, useColumns, useLabels, useMembers } from "../boards/api";
 import {
   failureMessage,
   useCreateTask,
@@ -28,9 +28,11 @@ import {
   useUpdateTask,
 } from "./api";
 import { formatMoment, fromLocalInput, toLocalInput } from "./dates";
+import { LabelPicker } from "./LabelPicker";
 import { PRIORITIES } from "./labels";
 import { DraftChecklist, TaskChecklist } from "./TaskChecklist";
 import styles from "./TaskDialog.module.css";
+import { TaskFeed } from "./TaskFeed";
 import { NEW_TASK, useTaskParam } from "./taskLinks";
 
 const TITLE_MAX_LENGTH = 200;
@@ -46,6 +48,7 @@ type Draft = {
   dueDate: string;
   dueTime: string;
   assigneeIds: string[];
+  labelIds: string[];
 };
 
 type FieldErrors = { title?: string; startDate?: string; dueDate?: string };
@@ -71,6 +74,7 @@ function draftOf(task: Task, timeZone: string): Draft {
     dueDate: due.date,
     dueTime: due.time,
     assigneeIds: task.assignees.map((user) => user.id),
+    labelIds: task.labels.map((label) => label.id),
   };
 }
 
@@ -99,6 +103,7 @@ function changes(before: Draft, draft: Draft, timeZone: string): Omit<TaskUpdate
     ...((draft.dueDate !== before.dueDate || draft.dueTime !== before.dueTime) &&
       deadline(draft, timeZone)),
     ...(!sameIds(draft.assigneeIds, before.assigneeIds) && { assignee_ids: draft.assigneeIds }),
+    ...(!sameIds(draft.labelIds, before.labelIds) && { label_ids: draft.labelIds }),
   };
 }
 
@@ -123,6 +128,7 @@ function createBody(draft: Draft, checklist: string[], timeZone: string, id: str
     start_date: draft.startDate || null,
     ...deadline(draft, timeZone),
     assignee_ids: draft.assigneeIds,
+    label_ids: draft.labelIds,
     checklist,
   };
 }
@@ -161,6 +167,7 @@ function TaskForm({ task, initial, timeZone, onClose, onReload }: TaskFormProps)
   const { data: board } = useBoard(draft.boardId);
   const { data: columns } = useColumns(draft.boardId);
   const { data: members } = useMembers(draft.boardId);
+  const { data: labels } = useLabels(draft.boardId);
   const readOnly =
     board !== undefined && (board.my_role === "viewer" || board.archived_at !== null);
 
@@ -170,6 +177,43 @@ function TaskForm({ task, initial, timeZone, onClose, onReload }: TaskFormProps)
 
   const writableBoards = (boards ?? []).filter((item) => item.my_role !== "viewer");
   const set = (change: Partial<Draft>) => setDraft((current) => ({ ...current, ...change }));
+
+  // Someone may have removed a label or a member while the form stood open, or the card was
+  // given another board. What is no longer there can't be sent.
+  const current = (): Draft => ({
+    ...draft,
+    labelIds: labels
+      ? draft.labelIds.filter((id) => labels.some((label) => label.id === id))
+      : draft.labelIds,
+    assigneeIds: members
+      ? draft.assigneeIds.filter((id) => members.some(({ user }) => user.id === id))
+      : draft.assigneeIds,
+  });
+
+  const moveToBoard = async (taskId: string, wanted: Draft, expected: number) => {
+    const fields = changes(base, wanted, timeZone);
+    delete fields.assignee_ids;
+    delete fields.label_ids;
+    if (Object.keys(fields).length > 0) {
+      await update.mutateAsync({ id: taskId, body: { ...fields, version: expected } });
+    }
+    const columnId =
+      wanted.columnId || columns?.find((column) => !column.is_done)?.id || wanted.columnId;
+    const moved = await move.mutateAsync({ id: taskId, columnId, afterId: null });
+    // Assignees and labels are checked against the board, so they go after the card is there.
+    const assignees = moved.assignees.map((user) => user.id);
+    const onCard = moved.labels.map((label) => label.id);
+    if (!sameIds(wanted.assigneeIds, assignees) || !sameIds(wanted.labelIds, onCard)) {
+      await update.mutateAsync({
+        id: taskId,
+        body: {
+          assignee_ids: wanted.assigneeIds,
+          label_ids: wanted.labelIds,
+          version: moved.version,
+        },
+      });
+    }
+  };
 
   const fail = (error: unknown) => {
     if (error instanceof ApiError && error.code === "version_conflict") {
@@ -196,15 +240,18 @@ function TaskForm({ task, initial, timeZone, onClose, onReload }: TaskFormProps)
     setFailure(undefined);
     setSaving(true);
     try {
+      const wanted = current();
       if (!task) {
-        await create.mutateAsync(createBody(draft, checklist, timeZone, newId));
+        await create.mutateAsync(createBody(wanted, checklist, timeZone, newId));
+      } else if (wanted.boardId !== base.boardId) {
+        await moveToBoard(task.id, wanted, expected);
       } else {
-        const body = changes(base, draft, timeZone);
+        const body = changes(base, wanted, timeZone);
         if (Object.keys(body).length > 0) {
           await update.mutateAsync({ id: task.id, body: { ...body, version: expected } });
         }
-        if (draft.columnId !== base.columnId) {
-          await move.mutateAsync({ id: task.id, columnId: draft.columnId, afterId: null });
+        if (wanted.columnId !== base.columnId) {
+          await move.mutateAsync({ id: task.id, columnId: wanted.columnId, afterId: null });
         }
       }
       onClose();
@@ -220,7 +267,7 @@ function TaskForm({ task, initial, timeZone, onClose, onReload }: TaskFormProps)
     try {
       // Check marks stay behind: POST /tasks takes the texts only.
       const items = task ? task.checklist.map((item) => item.text) : checklist;
-      await create.mutateAsync(createBody(draft, items, timeZone, newId));
+      await create.mutateAsync(createBody(current(), items, timeZone, newId));
       onClose();
     } catch (error) {
       setFailure(failureMessage(error));
@@ -260,119 +307,149 @@ function TaskForm({ task, initial, timeZone, onClose, onReload }: TaskFormProps)
   );
 
   return (
-    <Dialog title={task ? "Задача" : "Новая задача"} width={640} onClose={onClose} footer={footer}>
-      <form id="task-form" ref={form} className={styles.form} onSubmit={submit} noValidate>
-        {readOnly && <Banner tone="info">Доска доступна только для чтения</Banner>}
-        {failure && <Banner tone="error">{failure}</Banner>}
-        {gone && (
-          <Banner tone="warning">
-            <p>Задачу удалили, пока вы её редактировали.</p>
-            <Button variant="secondary" loading={saving} onClick={() => void recreate()}>
-              Создать заново
-            </Button>
-          </Banner>
-        )}
-        <TextField
-          label="Название"
-          value={draft.title}
-          maxLength={TITLE_MAX_LENGTH}
-          error={errors.title}
-          disabled={readOnly}
-          onChange={(event) => set({ title: event.target.value })}
-        />
-        <div className={styles.row}>
-          <SelectField
-            label="Доска"
-            value={draft.boardId}
-            // Moving a card between boards arrives together with Kanban.
-            disabled={task !== undefined || readOnly}
-            options={
-              task
-                ? [{ value: task.board_id, label: task.board_name }]
-                : writableBoards.map((item) => ({ value: item.id, label: item.name }))
-            }
-            onChange={(event) =>
-              set({ boardId: event.target.value, columnId: "", assigneeIds: [] })
-            }
-          />
-          <SelectField
-            label="Колонка"
-            value={draft.columnId}
-            disabled={readOnly}
-            options={[
-              ...(task ? [] : [{ value: "", label: "Первая открытая" }]),
-              ...(columns ?? []).map((column) => ({ value: column.id, label: column.name })),
-            ]}
-            onChange={(event) => set({ columnId: event.target.value })}
-          />
-        </div>
-        <TextArea
-          label="Описание"
-          value={draft.description}
-          disabled={readOnly}
-          onChange={(event) => set({ description: event.target.value })}
-        />
-        <SelectField
-          label="Приоритет"
-          value={draft.priority}
-          options={PRIORITY_OPTIONS}
-          disabled={readOnly}
-          onChange={(event) => set({ priority: event.target.value })}
-        />
-        <div className={styles.row}>
-          <TextField
-            label="Дата начала"
-            type="date"
-            value={draft.startDate}
-            error={errors.startDate}
-            disabled={readOnly}
-            onChange={(event) => set({ startDate: event.target.value })}
-          />
-          <TextField
-            label="Дедлайн"
-            type="date"
-            value={draft.dueDate}
-            error={errors.dueDate}
-            disabled={readOnly}
-            onChange={(event) => set({ dueDate: event.target.value })}
-          />
-          <TextField
-            label="Время"
-            type="time"
-            value={draft.dueTime}
-            disabled={readOnly}
-            onChange={(event) => set({ dueTime: event.target.value })}
-          />
-        </div>
-        {members && members.length > 0 && (
-          <fieldset className={styles.assignees} disabled={readOnly}>
-            <legend className={styles.legend}>Исполнители</legend>
-            {members.map(({ user }) => (
-              <div key={user.id} className={styles.assignee}>
-                <Checkbox
-                  label={user.display_name}
-                  checked={draft.assigneeIds.includes(user.id)}
-                  disabled={readOnly}
-                  onChange={(checked) =>
-                    set({
-                      assigneeIds: checked
-                        ? [...draft.assigneeIds, user.id]
-                        : draft.assigneeIds.filter((id) => id !== user.id),
-                    })
-                  }
-                />
-                <Avatar name={user.display_name} color={user.color} size={26} />
-              </div>
-            ))}
-          </fieldset>
-        )}
-      </form>
+    <Dialog
+      title={task ? "Задача" : "Новая задача"}
+      width={task ? 980 : 640}
+      onClose={onClose}
+      footer={footer}
+    >
+      <div className={task ? styles.columns : undefined}>
+        <div className={styles.fields}>
+          <form id="task-form" ref={form} className={styles.form} onSubmit={submit} noValidate>
+            {readOnly && <Banner tone="info">Доска доступна только для чтения</Banner>}
+            {failure && <Banner tone="error">{failure}</Banner>}
+            {gone && (
+              <Banner tone="warning">
+                <p>Задачу удалили, пока вы её редактировали.</p>
+                <Button variant="secondary" loading={saving} onClick={() => void recreate()}>
+                  Создать заново
+                </Button>
+              </Banner>
+            )}
+            <TextField
+              label="Название"
+              value={draft.title}
+              maxLength={TITLE_MAX_LENGTH}
+              error={errors.title}
+              disabled={readOnly}
+              onChange={(event) => set({ title: event.target.value })}
+            />
+            <div className={styles.row}>
+              <SelectField
+                label="Доска"
+                value={draft.boardId}
+                disabled={readOnly}
+                options={
+                  task && !writableBoards.some((item) => item.id === task.board_id)
+                    ? [
+                        { value: task.board_id, label: task.board_name },
+                        ...writableBoards.map((item) => ({ value: item.id, label: item.name })),
+                      ]
+                    : writableBoards.map((item) => ({ value: item.id, label: item.name }))
+                }
+                hint={
+                  task && draft.boardId !== task.board_id
+                    ? "Метки сбросятся, а исполнители, которых нет на новой доске, будут сняты"
+                    : undefined
+                }
+                onChange={(event) =>
+                  set({
+                    boardId: event.target.value,
+                    columnId: event.target.value === base.boardId ? base.columnId : "",
+                    labelIds: event.target.value === base.boardId ? base.labelIds : [],
+                    assigneeIds: task ? draft.assigneeIds : [],
+                  })
+                }
+              />
+              <SelectField
+                label="Колонка"
+                value={draft.columnId}
+                disabled={readOnly}
+                options={[
+                  ...(draft.columnId ? [] : [{ value: "", label: "Первая открытая" }]),
+                  ...(columns ?? []).map((column) => ({ value: column.id, label: column.name })),
+                ]}
+                onChange={(event) => set({ columnId: event.target.value })}
+              />
+            </div>
+            <TextArea
+              label="Описание"
+              value={draft.description}
+              disabled={readOnly}
+              onChange={(event) => set({ description: event.target.value })}
+            />
+            <SelectField
+              label="Приоритет"
+              value={draft.priority}
+              options={PRIORITY_OPTIONS}
+              disabled={readOnly}
+              onChange={(event) => set({ priority: event.target.value })}
+            />
+            <div className={styles.row}>
+              <TextField
+                label="Дата начала"
+                type="date"
+                value={draft.startDate}
+                error={errors.startDate}
+                disabled={readOnly}
+                onChange={(event) => set({ startDate: event.target.value })}
+              />
+              <TextField
+                label="Дедлайн"
+                type="date"
+                value={draft.dueDate}
+                error={errors.dueDate}
+                disabled={readOnly}
+                onChange={(event) => set({ dueDate: event.target.value })}
+              />
+              <TextField
+                label="Время"
+                type="time"
+                value={draft.dueTime}
+                disabled={readOnly}
+                onChange={(event) => set({ dueTime: event.target.value })}
+              />
+            </div>
+            {members && members.length > 0 && (
+              <fieldset className={styles.assignees} disabled={readOnly}>
+                <legend className={styles.legend}>Исполнители</legend>
+                {members.map(({ user }) => (
+                  <div key={user.id} className={styles.assignee}>
+                    <Checkbox
+                      label={user.display_name}
+                      checked={draft.assigneeIds.includes(user.id)}
+                      disabled={readOnly}
+                      onChange={(checked) =>
+                        set({
+                          assigneeIds: checked
+                            ? [...draft.assigneeIds, user.id]
+                            : draft.assigneeIds.filter((id) => id !== user.id),
+                        })
+                      }
+                    />
+                    <Avatar name={user.display_name} color={user.color} size={26} />
+                  </div>
+                ))}
+              </fieldset>
+            )}
+            <LabelPicker
+              boardId={draft.boardId}
+              value={draft.labelIds}
+              disabled={readOnly}
+              onChange={(labelIds) => set({ labelIds })}
+            />
+          </form>
 
-      {task ? (
-        <TaskChecklist task={task} readOnly={readOnly} />
-      ) : (
-        <DraftChecklist items={checklist} onChange={setChecklist} />
-      )}
+          {task ? (
+            <TaskChecklist task={task} readOnly={readOnly} />
+          ) : (
+            <DraftChecklist items={checklist} onChange={setChecklist} />
+          )}
+        </div>
+        {task && board && (
+          <TaskFeed task={task} board={board} readOnly={readOnly} timeZone={timeZone} />
+        )}
+      </div>
 
       {confirmingDelete && task && (
         <Dialog
@@ -451,6 +528,7 @@ function NewTask({ boardId, onClose }: { boardId?: string; onClose: () => void }
         dueDate: "",
         dueTime: "",
         assigneeIds: [],
+        labelIds: [],
       }}
     />
   );

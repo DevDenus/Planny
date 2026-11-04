@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utcnow
 from app.core.errors import AppError, field_error, id_conflict, not_found, version_conflict
-from app.core.ordering import key_between
+from app.core.ordering import key_after_row, key_between
 from app.core.pagination import (
     decode_cursor,
     encode_cursor,
@@ -22,7 +22,6 @@ from app.core.principal import Principal
 from app.identity import service as identity
 from app.identity.schemas import UserSummary
 from app.notifications import service as notifications
-from app.notifications import sync
 from app.notifications.models import NotificationKind
 from app.tasks import board_service, models, repository, schemas
 from app.tasks.board_service import BoardAccess
@@ -32,6 +31,7 @@ from app.tasks.models import ActivityKind
 # so the journal doesn't keep copies of the texts.
 EDITABLE_FIELDS = ("title", "description", "priority", "start_date", "due_date", "due_at")
 ASSIGNEE_NOT_MEMBER = "Исполнителем может быть только участник доски"
+LABEL_NOT_FOUND = "Метка не найдена"
 
 
 # Reading
@@ -44,9 +44,13 @@ async def _summaries(
     assignee_rows = await repository.assignees_of(db, task_ids)
     users = await identity.users_by_id(db, {user_id for _, user_id in assignee_rows})
     counts = await repository.checklist_counts(db, task_ids)
+    comments = await repository.comment_counts(db, task_ids)
     assignees: defaultdict[UUID, list[UserSummary]] = defaultdict(list)
     for task_id, user_id in assignee_rows:
         assignees[task_id].append(UserSummary.model_validate(users[user_id]))
+    labels: defaultdict[UUID, list[schemas.Label]] = defaultdict(list)
+    for task_id, label in await repository.labels_of(db, task_ids):
+        labels[task_id].append(schemas.Label.model_validate(label))
     result = []
     for task, board_name in rows:
         total, done = counts.get(task.id, (0, 0))
@@ -64,8 +68,10 @@ async def _summaries(
                 due_at=task.due_at,
                 completed_at=task.completed_at,
                 assignees=assignees[task.id],
+                labels=labels[task.id],
                 checklist_total=total,
                 checklist_done=done,
+                comments_count=comments.get(task.id, 0),
                 updated_at=task.updated_at,
             )
         )
@@ -87,7 +93,7 @@ async def _task_out(db: AsyncSession, task: models.Task, board_name: str) -> sch
     )
 
 
-async def _readable(
+async def readable(
     principal: Principal, db: AsyncSession, task_id: UUID
 ) -> tuple[models.Task, BoardAccess]:
     task = await repository.get_task(db, task_id)
@@ -96,7 +102,7 @@ async def _readable(
     return task, await board_service.access(principal, db, task.board_id)
 
 
-async def _locked_writable(
+async def locked_writable(
     principal: Principal, db: AsyncSession, task_id: UUID
 ) -> tuple[models.Task, BoardAccess]:
     task = await repository.lock_task(db, task_id)
@@ -115,7 +121,7 @@ async def _relocked(db: AsyncSession, task_id: UUID) -> models.Task:
 
 
 async def get_task(principal: Principal, db: AsyncSession, task_id: UUID) -> schemas.Task:
-    task, target = await _readable(principal, db, task_id)
+    task, target = await readable(principal, db, task_id)
     return await _task_out(db, task, target.board.name)
 
 
@@ -132,6 +138,7 @@ async def list_tasks(
         period_end=_day_start(filters.due_to, timezone),
         board_id=filters.board_id,
         column_id=filters.column_id,
+        label_id=filters.label_id,
         scope=filters.scope,
         assignee_id=principal.user_id if filters.assignee == "me" else filters.assignee,
         status=filters.status,
@@ -182,15 +189,6 @@ def _check_dates(
         raise field_error("start_date", "Дата начала не может быть позже дедлайна")
 
 
-async def _publish(db: AsyncSession, board_id: UUID, *, notified: set[UUID] | None = None) -> None:
-    await db.flush()
-    await sync.bump(
-        db,
-        tasks_for=await repository.member_ids(db, board_id),
-        notifications_for=notified or (),
-    )
-
-
 async def _assign(
     principal: Principal, db: AsyncSession, task: models.Task, wanted: set[UUID]
 ) -> tuple[set[UUID], set[UUID]]:
@@ -210,6 +208,25 @@ async def _assign(
             data = {"user_id": str(user_id), "name": users[user_id].display_name}
             repository.add_activity(db, task.id, principal.user_id, kind, data)
     return added, removed
+
+
+async def _label(
+    principal: Principal, db: AsyncSession, task: models.Task, wanted: set[UUID]
+) -> bool:
+    current = {label.id: label for _, label in await repository.labels_of(db, [task.id])}
+    new_ids, gone_ids = wanted - current.keys(), current.keys() - wanted
+    added = await repository.share_lock_labels(db, task.board_id, new_ids)
+    if len(added) != len(new_ids):
+        raise field_error("label_ids", LABEL_NOT_FOUND)
+    if gone_ids:
+        await repository.remove_task_labels(db, task.id, gone_ids)
+    db.add_all(models.TaskLabel(task_id=task.id, label_id=label.id) for label in added)
+    removed = [current[label_id] for label_id in gone_ids]
+    for kind, labels in ((ActivityKind.labeled, added), (ActivityKind.unlabeled, removed)):
+        for label in sorted(labels, key=lambda label: label.name):
+            data = {"name": label.name, "color": label.color}
+            repository.add_activity(db, task.id, principal.user_id, kind, data)
+    return bool(new_ids or gone_ids)
 
 
 def _notify_assigned(
@@ -298,6 +315,7 @@ async def create_task(
         db, task.id, principal.user_id, ActivityKind.created, {"column": column.name}
     )
     added, _ = await _assign(principal, db, task, set(body.assignee_ids))
+    await _label(principal, db, task, set(body.label_ids))
     position = None
     for text in body.checklist:
         position = key_between(position, None)
@@ -306,7 +324,7 @@ async def create_task(
             db, task.id, principal.user_id, ActivityKind.checklist_added, {"text": text}
         )
     notified = _notify_assigned(db, principal, task, added)
-    await _publish(db, board_id, notified=notified)
+    await board_service.publish(db, board_id, notified=notified)
     created = await _task_out(db, task, target.board.name)
     await db.commit()
     return created
@@ -355,7 +373,7 @@ async def _version_conflict(db: AsyncSession, task: models.Task, board_name: str
 async def update_task(
     principal: Principal, db: AsyncSession, task_id: UUID, body: schemas.TaskUpdate
 ) -> schemas.Task:
-    task, target = await _locked_writable(principal, db, task_id)
+    task, target = await locked_writable(principal, db, task_id)
     if task.version != body.version:
         raise await _version_conflict(db, task, target.board.name)
 
@@ -371,10 +389,15 @@ async def update_task(
     removed: set[UUID] = set()
     if body.assignee_ids is not None:
         added, removed = await _assign(principal, db, task, set(body.assignee_ids))
+    labeled = False
+    if body.label_ids is not None:
+        labeled = await _label(principal, db, task, set(body.label_ids))
 
-    if changes or added or removed:
+    if changes or added or removed or labeled:
         task.version += 1
-        await _publish(db, task.board_id, notified=_notify_assigned(db, principal, task, added))
+        await board_service.publish(
+            db, task.board_id, notified=_notify_assigned(db, principal, task, added)
+        )
     updated = await _task_out(db, task, target.board.name)
     await db.commit()
     return updated
@@ -387,23 +410,26 @@ async def delete_task(principal: Principal, db: AsyncSession, task_id: UUID) -> 
     board_service.require_writable(await board_service.access(principal, db, task.board_id))
     if task.deleted_at is None:
         task.deleted_at = utcnow()
-        await _publish(db, task.board_id)
+        await board_service.publish(db, task.board_id)
         await db.commit()
 
 
 # Moving. The column lock comes first, then the card, everywhere in this order.
 
 
-async def _relocate(
+async def relocate(
     db: AsyncSession,
     principal: Principal,
     task: models.Task,
     target: models.BoardColumn,
     position: str,
+    *,
+    boards: tuple[str, str] | None = None,
 ) -> None:
     """The status lives in the column: completed_at follows the column and nothing else."""
     source = await repository.get_column(db, task.column_id)
     assert source is not None  # noqa: S101  # the composite foreign key guarantees it
+    task.board_id = target.board_id
     task.column_id = target.id
     task.position = position
     if target.is_done and task.completed_at is None:
@@ -415,36 +441,66 @@ async def _relocate(
     kind = ActivityKind.moved
     if target.is_done != source.is_done:
         kind = ActivityKind.completed if target.is_done else ActivityKind.reopened
-    repository.add_activity(
-        db,
-        task.id,
-        principal.user_id,
-        kind,
-        {"from_column": source.name, "to_column": target.name},
-    )
+    data = {"from_column": source.name, "to_column": target.name}
+    if boards is not None:
+        data |= {"from_board": boards[0], "to_board": boards[1]}
+    repository.add_activity(db, task.id, principal.user_id, kind, data)
+
+
+async def _leave_board(
+    principal: Principal, db: AsyncSession, task: models.Task, board_id: UUID
+) -> bool:
+    """Labels belong to the old board. The lock on the new members works as in _assign: someone
+    removed from the board right now either goes from the card here or at the removal."""
+    members = set(await repository.share_lock_member_ids(db, board_id))
+    staying = set(await repository.assignee_ids(db, task.id)) & members
+    _, unassigned = await _assign(principal, db, task, staying)
+    unlabeled = await _label(principal, db, task, set())
+    return bool(unassigned or unlabeled)
 
 
 async def move_task(
     principal: Principal, db: AsyncSession, task_id: UUID, body: schemas.TaskMove
 ) -> schemas.Task:
     """No version here on purpose: a move doesn't conflict with an edit of the title, and of
-    two moves of one card the last one wins."""
-    task, target = await _readable(principal, db, task_id)
-    board_service.require_writable(target)
-    column = await repository.lock_column(db, task.board_id, body.column_id)
+    two moves of one card the last one wins. A move to another board is the exception when it
+    takes labels or assignees off the card: a form opened earlier would save them back."""
+    task, source = await readable(principal, db, task_id)
+    board_service.require_writable(source)
+    found = await repository.get_column(db, body.column_id)
+    if found is None:
+        raise not_found()
+    target = source
+    if found.board_id != source.board.id:
+        target = await board_service.access(principal, db, found.board_id)
+        board_service.require_writable(target)
+
+    column = await repository.lock_column(db, found.board_id, found.id)
     if column is None:
         raise not_found()
     task = await _relocked(db, task_id)
+    if task.board_id != source.board.id:  # Another move was first, and rights depend on the board.
+        source = await board_service.access(principal, db, task.board_id)
+        board_service.require_writable(source)
+
     if body.after_id != task.id:
-        before, after = await repository.gap_after(db, column.id, body.after_id, moving=task.id)
+        if "after_id" in body.model_fields_set:
+            before, after = await repository.gap_after(db, column.id, body.after_id, moving=task.id)
+        else:
+            before, after = await repository.last_position(db, column.id, excluding=task.id), None
         in_place = (
             task.column_id == column.id
             and (before is None or before < task.position)
             and (after is None or task.position < after)
         )
         if not in_place:
-            await _relocate(db, principal, task, column, key_between(before, after))
-            await _publish(db, task.board_id)
+            boards = None
+            if task.board_id != column.board_id:
+                boards = (source.board.name, target.board.name)
+                if await _leave_board(principal, db, task, column.board_id):
+                    task.version += 1
+            await relocate(db, principal, task, column, key_between(before, after), boards=boards)
+            await board_service.publish(db, source.board.id, target.board.id)
     moved = await _task_out(db, task, target.board.name)
     await db.commit()
     return moved
@@ -453,17 +509,22 @@ async def move_task(
 async def _set_done(
     principal: Principal, db: AsyncSession, task_id: UUID, *, done: bool
 ) -> schemas.Task:
-    task, target = await _readable(principal, db, task_id)
+    task, target = await readable(principal, db, task_id)
     board_service.require_writable(target)
     column = await repository.lock_first_column(db, task.board_id, is_done=done)
     task = await _relocked(db, task_id)
+    if task.board_id != column.board_id:
+        # Another move was first. Rights and the column depend on the board, and the column lock
+        # has to come before the card, so all of it starts over.
+        await db.rollback()
+        return await _set_done(principal, db, task_id, done=done)
     if (task.completed_at is not None) != done:
         if done:
             position = key_between(None, await repository.first_position(db, column.id))
         else:
             position = key_between(await repository.last_position(db, column.id), None)
-        await _relocate(db, principal, task, column, position)
-        await _publish(db, task.board_id)
+        await relocate(db, principal, task, column, position)
+        await board_service.publish(db, task.board_id)
     result = await _task_out(db, task, target.board.name)
     await db.commit()
     return result
@@ -483,7 +544,7 @@ async def reopen_task(principal: Principal, db: AsyncSession, task_id: UUID) -> 
 async def add_checklist_item(
     principal: Principal, db: AsyncSession, task_id: UUID, body: schemas.ChecklistItemCreate
 ) -> schemas.ChecklistItem:
-    task, _ = await _locked_writable(principal, db, task_id)
+    task, _ = await locked_writable(principal, db, task_id)
     if body.id is not None:
         existing = await repository.get_checklist_item(db, body.id)
         if existing is not None:
@@ -502,24 +563,10 @@ async def add_checklist_item(
     repository.add_activity(
         db, task.id, principal.user_id, ActivityKind.checklist_added, {"text": body.text}
     )
-    await _publish(db, task.board_id)
+    await board_service.publish(db, task.board_id)
     created = schemas.ChecklistItem.model_validate(item)
     await db.commit()
     return created
-
-
-def _checklist_position(
-    items: Sequence[models.ChecklistItem], item: models.ChecklistItem, after_id: UUID | None
-) -> str:
-    """The rules of a card move: null is the top, an item that is gone sends this one down."""
-    others = [other for other in items if other.id != item.id]
-    if after_id is None:
-        return key_between(None, others[0].position if others else None)
-    for index, other in enumerate(others):
-        if other.id == after_id:
-            following = others[index + 1].position if index + 1 < len(others) else None
-            return key_between(other.position, following)
-    return key_between(others[-1].position if others else None, None)
 
 
 async def update_checklist_item(
@@ -529,7 +576,7 @@ async def update_checklist_item(
     item_id: UUID,
     body: schemas.ChecklistItemUpdate,
 ) -> schemas.ChecklistItem:
-    task, _ = await _locked_writable(principal, db, task_id)
+    task, _ = await locked_writable(principal, db, task_id)
     item = await repository.get_checklist_item(db, item_id)
     if item is None or item.task_id != task.id:
         raise not_found()
@@ -545,11 +592,12 @@ async def update_checklist_item(
         changed = True
     if "after_id" in body.model_fields_set and body.after_id != item.id:
         items = await repository.checklist_of(db, task.id)
-        item.position = _checklist_position(items, item, body.after_id)
+        rows = [(other.id, other.position) for other in items if other.id != item.id]
+        item.position = key_after_row(rows, body.after_id)
         changed = True
 
     if changed:
-        await _publish(db, task.board_id)
+        await board_service.publish(db, task.board_id)
     updated = schemas.ChecklistItem.model_validate(item)
     await db.commit()
     return updated
@@ -558,7 +606,7 @@ async def update_checklist_item(
 async def delete_checklist_item(
     principal: Principal, db: AsyncSession, task_id: UUID, item_id: UUID
 ) -> None:
-    task, _ = await _locked_writable(principal, db, task_id)
+    task, _ = await locked_writable(principal, db, task_id)
     item = await repository.get_checklist_item(db, item_id)
     if item is None or item.task_id != task.id:
         return
@@ -566,5 +614,5 @@ async def delete_checklist_item(
     repository.add_activity(
         db, task.id, principal.user_id, ActivityKind.checklist_removed, {"text": item.text}
     )
-    await _publish(db, task.board_id)
+    await board_service.publish(db, task.board_id)
     await db.commit()

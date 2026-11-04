@@ -1,6 +1,29 @@
 import { describe, expect, it } from "vitest";
 
-import { NOTIFICATION_TEXT, PRIORITIES, pluralize, ROLE_LABELS } from "./labels";
+import type { TaskActivity } from "../../api/client";
+import {
+  activityText,
+  LABEL_COLORS,
+  NOTIFICATION_TEXT,
+  PRIORITIES,
+  pluralize,
+  ROLE_LABELS,
+} from "./labels";
+
+describe("LABEL_COLORS", () => {
+  it("lists the eight label colours in order with Russian names", () => {
+    expect(LABEL_COLORS).toEqual([
+      { value: "violet", label: "Фиолетовый" },
+      { value: "blue", label: "Синий" },
+      { value: "teal", label: "Бирюзовый" },
+      { value: "green", label: "Зелёный" },
+      { value: "yellow", label: "Жёлтый" },
+      { value: "orange", label: "Оранжевый" },
+      { value: "red", label: "Красный" },
+      { value: "pink", label: "Розовый" },
+    ]);
+  });
+});
 
 describe("PRIORITIES", () => {
   it("lists the four priorities in order with short codes", () => {
@@ -83,5 +106,54 @@ describe("pluralize", () => {
   it("uses the one form for 101 and the few form for 103", () => {
     expect(plural(101)).toBe("задача");
     expect(plural(103)).toBe("задачи");
+  });
+});
+
+describe("activityText", () => {
+  const boardMove = {
+    from_board: "Доска А",
+    to_board: "Доска Б",
+    from_column: "Бэклог",
+    to_column: "В работе",
+  };
+
+  it.each<[TaskActivity["kind"], Record<string, unknown>, string]>([
+    ["created", { column: "Бэклог" }, "Карточка создана"],
+    ["updated", { changes: [{ field: "title", from: "A", to: "B" }] }, "Изменено: название"],
+    [
+      "updated",
+      { changes: [{ field: "description" }, { field: "priority" }] },
+      "Изменено: описание, приоритет",
+    ],
+    [
+      "updated",
+      { changes: [{ field: "start_date" }, { field: "due_date" }] },
+      "Изменено: дата начала, срок",
+    ],
+    ["updated", { changes: [{ field: "due_date" }, { field: "due_at" }] }, "Изменено: срок"],
+    [
+      "updated",
+      { changes: [{ field: "due_at" }, { field: "unknown" }, { field: "title" }] },
+      "Изменено: срок, название",
+    ],
+    ["updated", { changes: [{ field: "unknown" }] }, "Изменено"],
+    ["moved", { from_column: "Бэклог", to_column: "В работе" }, "Перенос: Бэклог → В работе"],
+    ["moved", boardMove, "Перенос: Доска А, Бэклог → Доска Б, В работе"],
+    ["completed", {}, "Выполнено"],
+    ["completed", boardMove, "Выполнено. Перенос: Доска А, Бэклог → Доска Б, В работе"],
+    ["reopened", {}, "Возвращено в работу"],
+    ["reopened", boardMove, "Возвращено в работу. Перенос: Доска А, Бэклог → Доска Б, В работе"],
+    ["assigned", { user_id: "u2", name: "Аня" }, "Назначен исполнитель: Аня"],
+    ["unassigned", { user_id: "u2", name: "Аня" }, "Снят исполнитель: Аня"],
+    ["labeled", { name: "Срочно", color: "red" }, "Добавлена метка: Срочно"],
+    ["unlabeled", { name: "Срочно", color: "red" }, "Убрана метка: Срочно"],
+    ["checklist_added", { text: "Купить хлеб" }, "Новый пункт: Купить хлеб"],
+    ["checklist_checked", { text: "Купить хлеб" }, "Пункт выполнен: Купить хлеб"],
+    ["checklist_unchecked", { text: "Купить хлеб" }, "Пункт снова открыт: Купить хлеб"],
+    ["checklist_removed", { text: "Купить хлеб" }, "Удалён пункт: Купить хлеб"],
+    ["event_linked", { title: "Созвон" }, "Связано с событием: Созвон"],
+    ["event_unlinked", { title: "Созвон" }, "Связь с событием убрана: Созвон"],
+  ])("describes %s with %j", (kind, data, text) => {
+    expect(activityText({ kind, data })).toBe(text);
   });
 });

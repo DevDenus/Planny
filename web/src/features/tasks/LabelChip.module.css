@@ -1,0 +1,13 @@
+.chip {
+  display: inline-block;
+  max-width: 160px;
+  height: 22px;
+  padding: 0 var(--space-2);
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 22px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
