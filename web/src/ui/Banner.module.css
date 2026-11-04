@@ -1,0 +1,48 @@
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+}
+
+.icon {
+  flex-shrink: 0;
+}
+
+.text {
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+}
+
+.info {
+  background: var(--state-info-fill);
+}
+
+.info .icon {
+  color: var(--state-info);
+}
+
+.success {
+  background: var(--state-success-fill);
+}
+
+.success .icon {
+  color: var(--state-success);
+}
+
+.warning {
+  background: var(--state-warning-fill);
+}
+
+.warning .icon {
+  color: var(--state-warning);
+}
+
+.error {
+  background: var(--state-error-fill);
+}
+
+.error .icon {
+  color: var(--state-error);
+}

@@ -1,0 +1,9 @@
+# Server. The API port is bound to the LAN address only: Docker writes iptables rules past
+# ufw, so a bare 8000:8000 would open it on every interface, including the external one.
+services:
+  bff:
+    ports:
+      - "127.0.0.1:8080:8080"
+  api:
+    ports:
+      - "${LAN_IP:?}:8000:8000"

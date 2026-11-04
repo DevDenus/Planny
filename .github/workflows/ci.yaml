@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: planny
+          POSTGRES_PASSWORD: planny
+          POSTGRES_DB: planny_test
+        ports:
+          - "55432:5432"
+        options: >-
+          --health-cmd "pg_isready -U planny -d planny_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      # setup-uv has no floating v9 tag, so the v9 release is pinned exactly.
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: 0.13.7
+      - run: uv sync --frozen
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run mypy
+      - run: uv run pytest
+      - run: uv run alembic check
+        env:
+          PLANNY_DATABASE_URL: postgresql+asyncpg://planny:planny@127.0.0.1:55432/planny_test
+      - name: OpenAPI snapshot is up to date
+        run: uv run python scripts/export_openapi.py --check
+
+  bff:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bff
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: 0.13.7
+      - run: uv sync --frozen
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run mypy
+      - run: uv run pytest
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Generated API client matches the contract
+        run: |
+          npm run gen:api
+          git diff --exit-code src/api/schema.d.ts
+
+  compose:
+    runs-on: ubuntu-latest
+    env:
+      # Dummy values, not real secrets. They only satisfy the required variables
+      # in deploy/compose.yaml so that config and build can run in CI.
+      POSTGRES_PASSWORD: ci-dummy-postgres-password
+      BFF_SHARED_SECRET: ci-dummy-bff-shared-secret
+      COOKIE_KEY: ci-dummy-cookie-key
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose --project-directory deploy -f deploy/compose.yaml -f deploy/compose.dev.yaml config -q
+      - run: docker compose --project-directory deploy -f deploy/compose.yaml -f deploy/compose.prod.yaml config -q
+        env:
+          LAN_IP: 192.0.2.10
+      - run: docker compose --project-directory deploy -f deploy/compose.yaml -f deploy/compose.dev.yaml build

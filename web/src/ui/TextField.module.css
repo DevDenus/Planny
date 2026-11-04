@@ -1,0 +1,108 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.label {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* Stays in the accessibility tree: the placeholder alone does not name a field. */
+.labelHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.control {
+  position: relative;
+}
+
+.input {
+  display: block;
+  width: 100%;
+  height: var(--control-height-lg);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  transition:
+    background var(--transition),
+    border-color var(--transition);
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+.input:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+/* A field shows focus with its own border. An outline on top would draw a second frame. */
+.input:focus,
+.input:focus-visible {
+  border-color: var(--border-focus);
+  outline: none;
+  box-shadow: 0 0 0 1px var(--border-focus);
+}
+
+/* Declared after :focus so the error colour still wins while the field is focused. */
+.input.invalid,
+.input.invalid:focus {
+  border-color: var(--state-error);
+  box-shadow: none;
+}
+
+.input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hasIcon {
+  padding-left: calc(var(--space-4) + var(--space-5) + var(--space-3));
+}
+
+.hasTrailing {
+  padding-right: calc(var(--space-8) + var(--space-6));
+}
+
+.icon,
+.trailing {
+  position: absolute;
+  top: 50%;
+  display: flex;
+  transform: translateY(-50%);
+}
+
+.icon {
+  left: var(--space-4);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.trailing {
+  right: var(--space-2);
+}
+
+.hint,
+.error {
+  font-size: var(--text-sm);
+}
+
+.hint {
+  color: var(--text-muted);
+}
+
+.error {
+  color: var(--state-error);
+}

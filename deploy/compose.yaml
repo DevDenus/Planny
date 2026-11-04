@@ -1,0 +1,102 @@
+# Shared part of both environments: services and networks. compose.dev.yaml and
+# compose.prod.yaml add only the published ports, so the isolation checked in
+# development is the one that runs on the server.
+name: planny
+
+x-backend-image: &backend-image
+  image: planny-backend
+  build:
+    context: ../backend
+
+x-database-env: &database-env
+  PLANNY_DATABASE_URL: postgresql+asyncpg://planny:${POSTGRES_PASSWORD:?}@db:5432/planny
+
+x-migrated: &migrated
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: planny
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: planny
+    volumes:
+      - db-data:/var/lib/postgresql
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U planny -d planny"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    <<: *backend-image
+    command: ["alembic", "upgrade", "head"]
+    environment: *database-env
+    networks: [backend]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    <<: [*backend-image, *migrated]
+    restart: unless-stopped
+    environment:
+      <<: *database-env
+      PLANNY_BFF_SHARED_SECRET: ${BFF_SHARED_SECRET:?}
+    networks: [lan, backend]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request as r; r.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    <<: [*backend-image, *migrated]
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    environment: *database-env
+    networks: [backend]
+
+  bff:
+    image: planny-bff
+    build:
+      context: ..
+      dockerfile: bff/Dockerfile
+    restart: unless-stopped
+    environment:
+      PLANNY_API_URL: http://api:8000
+      PLANNY_BFF_SHARED_SECRET: ${BFF_SHARED_SECRET:?}
+      PLANNY_COOKIE_KEY: ${COOKIE_KEY:?}
+      PLANNY_COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      PLANNY_TRUST_FORWARDED_FOR: ${TRUST_FORWARDED_FOR:-false}
+    networks: [public, backend]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request as r; r.urlopen('http://127.0.0.1:8080/', timeout=3)
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+networks:
+  public: {}
+  lan: {}
+  backend:
+    internal: true
+
+volumes:
+  db-data: {}

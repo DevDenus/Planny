@@ -1,0 +1,50 @@
+.avatar {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+}
+
+.violet {
+  background: var(--cat-violet-fill);
+  color: var(--cat-violet);
+}
+
+.blue {
+  background: var(--cat-blue-fill);
+  color: var(--cat-blue);
+}
+
+.teal {
+  background: var(--cat-teal-fill);
+  color: var(--cat-teal);
+}
+
+.green {
+  background: var(--cat-green-fill);
+  color: var(--cat-green);
+}
+
+.yellow {
+  background: var(--cat-yellow-fill);
+  color: var(--cat-yellow);
+}
+
+.orange {
+  background: var(--cat-orange-fill);
+  color: var(--cat-orange);
+}
+
+.red {
+  background: var(--cat-red-fill);
+  color: var(--cat-red);
+}
+
+.pink {
+  background: var(--cat-pink-fill);
+  color: var(--cat-pink);
+}

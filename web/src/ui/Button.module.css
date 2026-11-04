@@ -1,0 +1,109 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    border-color var(--transition),
+    color var(--transition),
+    transform var(--transition);
+}
+
+.md {
+  height: var(--control-height);
+  padding: 0 var(--space-5);
+  font-size: var(--text-md);
+}
+
+.lg {
+  height: var(--control-height-lg);
+  padding: 0 var(--space-6);
+  font-size: var(--text-lg);
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+.icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+/* Hover and active apply only to enabled buttons. Active adds a press scale, so it differs from hover. */
+
+.primary {
+  background: var(--accent-gradient);
+  color: var(--text-on-accent);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--accent-gradient-hover);
+}
+
+.primary:active:not(:disabled) {
+  background: var(--accent-gradient-hover);
+  transform: scale(0.98);
+}
+
+.secondary {
+  border-color: var(--border-strong);
+  background: var(--surface-input);
+  color: var(--text-primary);
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.secondary:active:not(:disabled) {
+  border-color: var(--text-muted);
+  background: var(--surface-hover);
+  transform: scale(0.98);
+}
+
+.ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.ghost:active:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  transform: scale(0.98);
+}
+
+.danger {
+  background: var(--state-error-fill);
+  color: var(--state-error);
+}
+
+.danger:hover:not(:disabled) {
+  border-color: var(--state-error);
+}
+
+.danger:active:not(:disabled) {
+  border-color: var(--state-error);
+  transform: scale(0.98);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
