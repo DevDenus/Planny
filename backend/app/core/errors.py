@@ -60,6 +60,24 @@ def not_found(message: str = "Объект не найден") -> AppError:
     return AppError(HTTPStatus.NOT_FOUND, "not_found", message)
 
 
+def forbidden(message: str = "Недостаточно прав") -> AppError:
+    return AppError(HTTPStatus.FORBIDDEN, "forbidden", message)
+
+
+def version_conflict(current: dict[str, Any], **extra: Any) -> AppError:
+    return AppError(
+        HTTPStatus.CONFLICT, "version_conflict", "Объект изменился", {"current": current, **extra}
+    )
+
+
+def id_conflict() -> AppError:
+    return AppError(HTTPStatus.CONFLICT, "id_conflict", "Идентификатор уже занят")
+
+
+def invariant_violation(message: str) -> AppError:
+    return AppError(HTTPStatus.CONFLICT, "invariant_violation", message)
+
+
 def rate_limited(retry_after: int) -> AppError:
     return AppError(
         HTTPStatus.TOO_MANY_REQUESTS,

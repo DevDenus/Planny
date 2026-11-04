@@ -1,0 +1,65 @@
+/* Scrolls sideways on narrow screens instead of wrapping the segments onto a second row. */
+.group {
+  display: flex;
+  gap: var(--space-1);
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--space-1);
+  overflow-x: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  scrollbar-width: none;
+}
+
+.segment {
+  flex-shrink: 0;
+  min-height: var(--control-height);
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    color var(--transition),
+    transform var(--transition);
+}
+
+.segment:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.segment:active:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  transform: scale(0.98);
+}
+
+/* Declared after the hover and active rules so the selected segment keeps its gradient. */
+.selected,
+.selected:hover:not(:disabled),
+.selected:active:not(:disabled) {
+  background: var(--accent-gradient);
+  color: var(--text-on-accent);
+}
+
+.selected:hover:not(:disabled),
+.selected:active:not(:disabled) {
+  background: var(--accent-gradient-hover);
+}
+
+.segment:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.segment:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

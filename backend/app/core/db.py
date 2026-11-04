@@ -1,19 +1,21 @@
 from collections.abc import AsyncIterator
 from datetime import datetime
+from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends
-from sqlalchemy import DateTime, MetaData, Uuid
+from sqlalchemy import DateTime, Enum, MetaData, Uuid, func
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from app.core.clock import utcnow
 from app.core.config import get_settings
 
 NAMING_CONVENTION = {
@@ -31,6 +33,20 @@ class Base(DeclarativeBase):
         datetime: DateTime(timezone=True),
         UUID: Uuid,
     }
+
+
+class Timestamps:
+    """Client-side values: a server-side onupdate expires the attribute, and reading an expired
+    attribute after the flush would need a lazy load, which an async session can't do."""
+
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=func.now(), onupdate=utcnow
+    )
+
+
+def pg_enum(enum: type[StrEnum], name: str) -> Enum:
+    return Enum(enum, name=name, values_callable=lambda e: [m.value for m in e])
 
 
 @lru_cache

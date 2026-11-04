@@ -1,8 +1,10 @@
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +16,8 @@ from app.core.principal import Operator, Principal
 from app.identity import passwords, repository
 from app.identity.models import User, UserSession, UserStatus
 from app.identity.tokens import hash_token, new_session_token
+from app.notifications import sync
+from app.tasks import provisioning
 
 AVATAR_COLORS = ("teal", "violet", "blue", "orange", "pink", "green", "yellow", "red")
 LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,31}$")
@@ -172,6 +176,22 @@ async def list_active_users(principal: Principal, db: AsyncSession) -> Sequence[
     return await repository.list_users(db, status=UserStatus.active)
 
 
+async def timezone_of(principal: Principal, db: AsyncSession) -> ZoneInfo:
+    return ZoneInfo((await _current_user(principal, db)).timezone)
+
+
+# Other modules see users only through these two.
+
+
+async def users_by_id(db: AsyncSession, user_ids: Iterable[UUID]) -> dict[UUID, User]:
+    return {user.id: user for user in await repository.get_users(db, set(user_ids))}
+
+
+async def active_user(db: AsyncSession, user_id: UUID) -> User | None:
+    user = await repository.get_user(db, user_id)
+    return user if user is not None and user.status == UserStatus.active else None
+
+
 # Operator commands. They exist only in the CLI: no route calls them.
 
 
@@ -200,6 +220,9 @@ async def create_user(
         color=AVATAR_COLORS[await repository.count_users(db) % len(AVATAR_COLORS)],
     )
     db.add(user)
+    await db.flush()
+    await provisioning.add_personal_board(db, user.id)
+    sync.init_user(db, user.id)
     repository.add_audit_record(
         db,
         actor=operator.actor,

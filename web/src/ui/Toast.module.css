@@ -1,0 +1,46 @@
+.region {
+  position: fixed;
+  bottom: var(--space-4);
+  left: 50%;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(420px, calc(100% - var(--space-8)));
+  transform: translateX(-50%);
+  /* Only the toasts take clicks, so the empty strip above the page stays usable. */
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding-left: var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-raised);
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  pointer-events: auto;
+}
+
+.error {
+  border-color: var(--state-error);
+  background: var(--state-error-fill);
+}
+
+.message {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-3) 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+  .region {
+    bottom: calc(var(--mobile-nav-height) + var(--space-4));
+  }
+}

@@ -1,0 +1,89 @@
+/* The input is visually hidden but stays focusable and announced. Focus is drawn on the box. */
+.checkbox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 100%;
+  min-height: var(--control-height);
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  cursor: pointer;
+}
+
+.input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.box {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-input);
+  color: var(--text-on-accent);
+  transition:
+    background var(--transition),
+    border-color var(--transition),
+    transform var(--transition);
+}
+
+.label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Stays in the accessibility tree: the checkbox still needs its name. */
+.labelHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The label itself becomes the 44px touch target when only the box is visible. */
+.compact {
+  justify-content: center;
+  min-width: var(--control-height);
+}
+
+.input:checked + .box {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.checkbox:not(.disabled):hover .input:not(:checked) + .box {
+  border-color: var(--text-muted);
+  background: var(--surface-hover);
+}
+
+.checkbox:not(.disabled):hover .input:checked + .box {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+
+.checkbox:not(.disabled):active .box {
+  transform: scale(0.94);
+}
+
+.input:focus-visible + .box {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

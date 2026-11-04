@@ -1,0 +1,119 @@
+.row {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height-lg);
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-1);
+  border-top: 1px solid var(--border);
+  list-style: none;
+}
+
+.row:first-child {
+  border-top: none;
+}
+
+.open {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) var(--space-1);
+  border: none;
+  border-radius: var(--radius-xs);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition);
+}
+
+.open:hover {
+  background: var(--surface-hover);
+}
+
+.open:active {
+  background: var(--surface-input);
+}
+
+.title {
+  flex: 1 1 240px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.titleDone {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chip,
+.priority {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 26px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.chip {
+  max-width: 180px;
+  overflow: hidden;
+  background: var(--surface-input);
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+}
+
+.overdue {
+  background: var(--state-error-fill);
+  color: var(--state-error);
+}
+
+.priority1 {
+  background: var(--priority-1-fill);
+  color: var(--priority-1);
+}
+
+.priority2 {
+  background: var(--priority-2-fill);
+  color: var(--priority-2);
+}
+
+.priority3 {
+  background: var(--priority-3-fill);
+  color: var(--priority-3);
+}
+
+.priority4 {
+  background: var(--priority-4-fill);
+  color: var(--priority-4);
+}
+
+.assignees {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.assignees > * + * {
+  margin-left: calc(var(--space-2) * -1);
+}
+
+@media (max-width: 767px) {
+  /* On a phone an ordinary priority is noise, and a shopping list is all ordinary priorities. */
+  .priority3 {
+    display: none;
+  }
+
+  .title {
+    flex-basis: 100%;
+  }
+}
