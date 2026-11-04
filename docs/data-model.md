@@ -338,7 +338,7 @@ CHECK (
 | `kind` | enum | Список видов в [frontend.md](frontend.md#8-подписи-и-перечисления) |
 | `actor_id` | uuid, FK, null | Кто совершил действие, у напоминаний `NULL` |
 | `title` | text | Снимок названия объекта на момент уведомления |
-| `event_id`, `task_id`, `board_id` | uuid, FK, null | Цель перехода |
+| `event_id`, `task_id`, `board_id` | uuid, FK, null | Цель перехода. `event_id` появится на этапе 4 вместе с таблицей `event` |
 | `data` | jsonb | Подробности, например `occurrence_start` и новое время |
 | `dedupe_key` | text, unique, null | Защита от дублей при работе worker |
 | `read_at` | timestamptz, null | |

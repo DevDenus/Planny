@@ -1,8 +1,13 @@
-import { Bell, CalendarDays, ListChecks, Search, Settings, SquareKanban } from "lucide-react";
-import { NavLink, Outlet } from "react-router";
+import { CalendarDays, ListChecks, Plus, Search, Settings, SquareKanban } from "lucide-react";
+import { Link, NavLink, Outlet, useLocation, useMatch } from "react-router";
 
 import { Avatar, IconButton, Logo } from "../../ui";
 import { useCurrentUser } from "../auth/session";
+import { BoardsNav } from "../boards/BoardsNav";
+import { NotificationBell } from "../notifications/NotificationBell";
+import { useSync } from "../sync/useSync";
+import { TaskDialogHost } from "../tasks/TaskDialog";
+import { newTaskSearch } from "../tasks/taskLinks";
 import styles from "./AppShell.module.css";
 
 const SECTIONS = [
@@ -18,11 +23,27 @@ const navClass = ({ isActive }: { isActive: boolean }) =>
 const tabClass = ({ isActive }: { isActive: boolean }) =>
   isActive ? `${styles.tab} ${styles.tabActive}` : styles.tab;
 
-/** Search arrives with the calendar, notifications with the boards. */
+/** Search arrives later, together with the calendar. */
 const NOT_YET = "Появится позже";
+
+function AddTaskButton() {
+  const { pathname } = useLocation();
+  const onBoard = useMatch("/boards/:boardId");
+  if (!pathname.startsWith("/tasks") && !pathname.startsWith("/boards")) return null;
+  return (
+    <Link
+      className={styles.fab}
+      to={{ search: newTaskSearch(onBoard?.params.boardId) }}
+      aria-label="Новая задача"
+    >
+      <Plus size={26} aria-hidden="true" />
+    </Link>
+  );
+}
 
 export function AppShell() {
   const { data: user } = useCurrentUser();
+  const { unread, disconnected } = useSync();
 
   return (
     <div className={styles.shell}>
@@ -43,6 +64,7 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
+        <BoardsNav />
         <div className={styles.sidebarBottom}>
           <NavLink to={SETTINGS.to} className={navClass} title={SETTINGS.label}>
             <SETTINGS.Icon size={20} aria-hidden="true" />
@@ -62,9 +84,7 @@ export function AppShell() {
           <Search size={18} aria-hidden="true" />
           <input type="search" placeholder="Поиск" aria-label="Поиск" disabled title={NOT_YET} />
         </label>
-        <IconButton label="Уведомления" disabled title={NOT_YET}>
-          <Bell size={20} />
-        </IconButton>
+        <NotificationBell unread={unread} />
         {user && (
           <NavLink to={SETTINGS.to} className={styles.profileLink} aria-label="Профиль">
             <Avatar name={user.display_name} color={user.color} />
@@ -78,15 +98,21 @@ export function AppShell() {
           <IconButton label="Поиск" disabled title={NOT_YET}>
             <Search size={20} />
           </IconButton>
-          <IconButton label="Уведомления" disabled title={NOT_YET}>
-            <Bell size={20} />
-          </IconButton>
+          <NotificationBell unread={unread} />
         </div>
       </header>
 
       <main className={styles.main}>
+        {disconnected && (
+          <p className={styles.disconnected} role="status">
+            Нет связи с сервером
+          </p>
+        )}
         <Outlet />
       </main>
+
+      <AddTaskButton />
+      <TaskDialogHost />
 
       <nav className={styles.tabs} aria-label="Разделы">
         {[...SECTIONS, SETTINGS].map(({ to, label, Icon }) => (

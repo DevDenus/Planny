@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -12,6 +12,12 @@ from app.identity.models import AuditLog, LoginAttempt, User, UserSession, UserS
 
 async def get_user(db: AsyncSession, user_id: UUID) -> User | None:
     return await db.get(User, user_id)
+
+
+async def get_users(db: AsyncSession, user_ids: Collection[UUID]) -> Sequence[User]:
+    if not user_ids:
+        return []
+    return (await db.scalars(select(User).where(User.id.in_(user_ids)))).all()
 
 
 async def get_user_by_login(db: AsyncSession, login: str) -> User | None:

@@ -21,8 +21,13 @@ export function useLogin() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: login,
-    // Reset, not invalidate: an earlier 401 must not be read as the current state.
-    onSuccess: () => client.resetQueries({ queryKey: ME_KEY }),
+    onSuccess: () => {
+      // A session can end without a logout, and then the next person signs in over the cache of
+      // the last one. A plain clear() would leave this screen unaware of the new /me.
+      client.removeQueries({ predicate: ({ queryKey }) => queryKey[0] !== ME_KEY[0] });
+      // Reset, not invalidate: an earlier 401 must not be read as the current state.
+      return client.resetQueries({ queryKey: ME_KEY });
+    },
   });
 }
 

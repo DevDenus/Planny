@@ -1,0 +1,78 @@
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 100%;
+  min-height: var(--control-height);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+  transition: transform var(--transition);
+}
+
+.track {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-input);
+  transition:
+    background var(--transition),
+    border-color var(--transition);
+}
+
+/* 40px track, 1px border, 18px thumb: a 2px gap at both ends when on. */
+.thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  background: var(--text-primary);
+  transition: transform var(--transition);
+}
+
+.label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.switch[aria-checked="true"] .track {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.switch[aria-checked="true"] .thumb {
+  transform: translateX(16px);
+}
+
+.switch[aria-checked="false"]:hover:not(:disabled) .track {
+  border-color: var(--text-muted);
+  background: var(--surface-hover);
+}
+
+.switch[aria-checked="true"]:hover:not(:disabled) .track {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+
+.switch:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

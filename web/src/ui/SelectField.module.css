@@ -1,0 +1,100 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.label {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* Stays in the accessibility tree: the select still needs its name. */
+.labelHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.control {
+  position: relative;
+}
+
+.select {
+  display: block;
+  width: 100%;
+  height: var(--control-height-lg);
+  padding: 0 calc(var(--space-4) + var(--space-5) + var(--space-3)) 0 var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  text-overflow: ellipsis;
+  appearance: none;
+  transition:
+    background var(--transition),
+    border-color var(--transition);
+}
+
+/* The dropdown list inherits this background, so the options stay readable on the dark theme. */
+.select option {
+  background: var(--surface-input);
+  color: var(--text-primary);
+}
+
+.select:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+/* A field shows focus with its own border. An outline on top would draw a second frame. */
+.select:focus,
+.select:focus-visible {
+  border-color: var(--border-focus);
+  outline: none;
+  box-shadow: 0 0 0 1px var(--border-focus);
+}
+
+/* Declared after :focus so the error colour still wins while the field is focused. */
+.select.invalid,
+.select.invalid:focus {
+  border-color: var(--state-error);
+  box-shadow: none;
+}
+
+.select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.icon {
+  position: absolute;
+  top: 50%;
+  right: var(--space-4);
+  display: flex;
+  color: var(--text-muted);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.select:disabled + .icon {
+  opacity: 0.5;
+}
+
+.hint,
+.error {
+  font-size: var(--text-sm);
+}
+
+.hint {
+  color: var(--text-muted);
+}
+
+.error {
+  color: var(--state-error);
+}

@@ -1,7 +1,22 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 
-import { Avatar, Banner, Button, IconButton, PasswordField, TextField } from "./index";
+import {
+  Avatar,
+  Banner,
+  Button,
+  Checkbox,
+  Dialog,
+  IconButton,
+  PasswordField,
+  SegmentedControl,
+  SelectField,
+  Switch,
+  TextField,
+  ToastProvider,
+  useToast,
+} from "./index";
 import type { BannerProps } from "./index";
 
 describe("Button", () => {
@@ -108,5 +123,236 @@ describe("Banner", () => {
     render(<Banner tone={tone}>Сообщение</Banner>);
 
     expect(screen.getByRole(role)).toHaveTextContent("Сообщение");
+  });
+});
+
+describe("Checkbox", () => {
+  it("reports the next value on click", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(<Checkbox checked={false} onChange={onChange} label="Выполнено" />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Выполнено" }));
+    expect(onChange).toHaveBeenLastCalledWith(true);
+
+    rerender(<Checkbox checked onChange={onChange} label="Выполнено" />);
+    await user.click(screen.getByRole("checkbox", { name: "Выполнено" }));
+    expect(onChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("keeps its name when the label is hidden", () => {
+    render(<Checkbox checked={false} onChange={vi.fn()} label="Выполнено" hideLabel />);
+
+    expect(screen.getByRole("checkbox", { name: "Выполнено" })).not.toBeChecked();
+  });
+});
+
+describe("SelectField", () => {
+  it("links the error through aria-describedby and marks the select invalid", () => {
+    render(
+      <SelectField
+        label="Приоритет"
+        options={[{ value: "high", label: "Высокий" }]}
+        error="Выберите приоритет"
+      />,
+    );
+
+    const select = screen.getByLabelText("Приоритет");
+    expect(select).toHaveAttribute("aria-invalid", "true");
+    expect(select).toHaveAccessibleDescription("Выберите приоритет");
+    expect(select).toHaveAttribute("aria-describedby", screen.getByText("Выберите приоритет").id);
+  });
+});
+
+function DialogHost() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        Открыть
+      </button>
+      {open ? (
+        <Dialog title="Фильтр задач" onClose={() => setOpen(false)}>
+          <button type="button">Первая</button>
+          <button type="button">Вторая</button>
+        </Dialog>
+      ) : null}
+    </>
+  );
+}
+
+describe("Dialog", () => {
+  it("closes on Escape and on an overlay click, but not on a click inside", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(
+      <Dialog title="Событие" onClose={onClose}>
+        <p>Описание</p>
+      </Dialog>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Событие" });
+    await user.click(screen.getByText("Описание"));
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(dialog.parentElement as HTMLElement);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("moves focus into the panel and returns it to the opener", async () => {
+    const user = userEvent.setup();
+    render(<DialogHost />);
+
+    const opener = screen.getByRole("button", { name: "Открыть" });
+    await user.click(opener);
+    expect(screen.getByRole("dialog", { name: "Фильтр задач" })).toHaveFocus();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("keeps Tab inside the panel", async () => {
+    const user = userEvent.setup();
+    render(<DialogHost />);
+
+    await user.click(screen.getByRole("button", { name: "Открыть" }));
+    await user.click(screen.getByRole("button", { name: "Вторая" }));
+
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Закрыть" })).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "Вторая" })).toHaveFocus();
+  });
+});
+
+describe("SegmentedControl", () => {
+  it("reports the choice and marks the selected segment", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const options = [
+      { value: "all", label: "Все задачи" },
+      { value: "mine", label: "Мои" },
+    ];
+    const { rerender } = render(
+      <SegmentedControl label="Фильтр задач" value="all" options={options} onChange={onChange} />,
+    );
+
+    expect(screen.getByRole("radio", { name: "Все задачи" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+
+    await user.click(screen.getByRole("radio", { name: "Мои" }));
+    expect(onChange).toHaveBeenCalledWith("mine");
+
+    rerender(
+      <SegmentedControl label="Фильтр задач" value="mine" options={options} onChange={onChange} />,
+    );
+    expect(screen.getByRole("radio", { name: "Мои" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "Все задачи" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+  });
+});
+
+describe("Switch", () => {
+  it("reports the opposite state on click", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(<Switch checked={false} onChange={onChange} label="Дом" />);
+
+    const toggle = screen.getByRole("switch", { name: "Дом" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    await user.click(toggle);
+    expect(onChange).toHaveBeenLastCalledWith(true);
+
+    rerender(<Switch checked onChange={onChange} label="Дом" />);
+    await user.click(toggle);
+    expect(onChange).toHaveBeenLastCalledWith(false);
+  });
+});
+
+function ShowToastButton() {
+  const toast = useToast();
+
+  return (
+    <button type="button" onClick={() => toast.show("Сохранено")}>
+      Показать
+    </button>
+  );
+}
+
+describe("Toast", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("shows a message and hides it with the dismiss button", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToastProvider>
+        <ShowToastButton />
+      </ToastProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Показать" }));
+    expect(screen.getByText("Сохранено")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Скрыть" }));
+    expect(screen.queryByText("Сохранено")).not.toBeInTheDocument();
+  });
+
+  it("hides a message after five seconds", () => {
+    // userEvent waits on real timers internally, so a synchronous click keeps the fake clock usable.
+    vi.useFakeTimers();
+    render(
+      <ToastProvider>
+        <ShowToastButton />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Показать" }));
+    act(() => {
+      vi.advanceTimersByTime(4999);
+    });
+    expect(screen.getByText("Сохранено")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(screen.queryByText("Сохранено")).not.toBeInTheDocument();
+  });
+
+  it("keeps at most three messages", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToastProvider>
+        <ShowToastButton />
+      </ToastProvider>,
+    );
+
+    const button = screen.getByRole("button", { name: "Показать" });
+    for (let count = 0; count < 4; count += 1) {
+      await user.click(button);
+    }
+
+    expect(screen.getAllByText("Сохранено")).toHaveLength(3);
+  });
+
+  it("throws outside a provider", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() => render(<ShowToastButton />)).toThrow("useToast must be used inside ToastProvider");
   });
 });

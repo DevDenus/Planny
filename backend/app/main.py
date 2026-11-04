@@ -12,6 +12,9 @@ from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware
 from app.identity.router import router as identity_router
 from app.identity.schemas import Health
+from app.notifications.router import router as notifications_router
+from app.tasks.router import boards as boards_router
+from app.tasks.router import tasks as tasks_router
 
 API_PREFIX = "/api/v1"
 
@@ -47,6 +50,9 @@ def create_app() -> FastAPI:
 
     api = APIRouter(prefix=API_PREFIX)
     api.include_router(identity_router)
+    api.include_router(boards_router)
+    api.include_router(tasks_router)
+    api.include_router(notifications_router)
 
     @api.get("/health", tags=["system"])
     async def health(db: DbSession) -> Health:

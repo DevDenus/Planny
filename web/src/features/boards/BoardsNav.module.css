@@ -1,0 +1,57 @@
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: 0;
+  padding-top: var(--space-3);
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.title {
+  padding: 0 var(--space-3) var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  transition:
+    background var(--transition),
+    color var(--transition);
+}
+
+.item:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.item:active {
+  background: var(--surface-card);
+}
+
+.itemActive,
+.itemActive:hover {
+  color: var(--accent-bright);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1199px) {
+  /* The panel is a rail of icons here, and names are what tells these rows apart. */
+  .nav {
+    display: none;
+  }
+}

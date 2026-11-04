@@ -6,7 +6,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import get_settings
 from app.core.db import Base
-from app.identity import models  # noqa: F401  # registers the tables on Base.metadata
+from app.identity import models as identity_models
+from app.notifications import models as notification_models
+from app.tasks import models as task_models
+
+# Imported for the side effect of registering the tables on Base.metadata.
+__all__ = ["identity_models", "notification_models", "task_models"]
 
 
 def run_migrations(connection: Connection) -> None:

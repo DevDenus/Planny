@@ -2,7 +2,24 @@ import createClient from "openapi-fetch";
 
 import type { components, paths } from "./schema";
 
-export type CurrentUser = components["schemas"]["CurrentUser"];
+type Schemas = components["schemas"];
+
+export type CurrentUser = Schemas["CurrentUser"];
+export type UserSummary = Schemas["UserSummary"];
+export type Board = Schemas["Board"];
+export type BoardColumn = Schemas["BoardColumn"];
+export type BoardMember = Schemas["BoardMember"];
+export type BoardRole = Board["my_role"];
+export type Task = Schemas["Task"];
+export type TaskSummary = Schemas["TaskSummary"];
+export type TaskCreate = Schemas["TaskCreate"];
+export type TaskUpdate = Schemas["TaskUpdate"];
+export type TaskPage = Schemas["TaskPage"];
+export type TaskFilters = NonNullable<paths["/api/v1/tasks"]["get"]["parameters"]["query"]>;
+export type ChecklistItem = Schemas["ChecklistItem"];
+export type Notification = Schemas["Notification"];
+export type NotificationPage = Schemas["NotificationPage"];
+export type SyncState = Schemas["SyncState"];
 
 interface ApiErrorBody {
   error: {

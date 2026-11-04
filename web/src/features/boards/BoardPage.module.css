@@ -1,0 +1,80 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.icon {
+  display: flex;
+  color: var(--accent-bright);
+}
+
+.title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-2xl);
+  font-weight: 700;
+}
+
+.readOnly {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-xs);
+  background: var(--state-warning-fill);
+  color: var(--state-warning);
+  font-size: var(--text-sm);
+}
+
+.members {
+  display: flex;
+}
+
+.members > * + * {
+  margin-left: calc(var(--space-2) * -1);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+}
+
+.assignee {
+  max-width: 220px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+@media (max-width: 767px) {
+  .newTask {
+    display: none;
+  }
+}

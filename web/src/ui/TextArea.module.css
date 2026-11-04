@@ -1,0 +1,79 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.label {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* Stays in the accessibility tree: the placeholder alone does not name a field. */
+.labelHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.textarea {
+  display: block;
+  width: 100%;
+  min-height: 96px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  resize: vertical;
+  transition:
+    background var(--transition),
+    border-color var(--transition);
+}
+
+.textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.textarea:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+/* A field shows focus with its own border. An outline on top would draw a second frame. */
+.textarea:focus,
+.textarea:focus-visible {
+  border-color: var(--border-focus);
+  outline: none;
+  box-shadow: 0 0 0 1px var(--border-focus);
+}
+
+/* Declared after :focus so the error colour still wins while the field is focused. */
+.textarea.invalid,
+.textarea.invalid:focus {
+  border-color: var(--state-error);
+  box-shadow: none;
+}
+
+.textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hint,
+.error {
+  font-size: var(--text-sm);
+}
+
+.hint {
+  color: var(--text-muted);
+}
+
+.error {
+  color: var(--state-error);
+}

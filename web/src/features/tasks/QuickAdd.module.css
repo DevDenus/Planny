@@ -1,0 +1,36 @@
+.form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-right: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  transition: border-color var(--transition);
+}
+
+.form:focus-within {
+  border-color: var(--border-focus);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-height);
+  padding: 0 var(--space-4);
+  border: none;
+  outline: none;
+  background: none;
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+.input:disabled {
+  opacity: 0.5;
+}
+
+.submit {
+  flex-shrink: 0;
+}

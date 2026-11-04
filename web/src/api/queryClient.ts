@@ -3,6 +3,10 @@ import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { ApiError } from "./client";
 
 export const ME_KEY = ["me"] as const;
+export const SYNC_KEY = ["sync"] as const;
+export const BOARDS_KEY = ["boards"] as const;
+export const TASKS_KEY = ["tasks"] as const;
+export const NOTIFICATIONS_KEY = ["notifications"] as const;
 
 const SESSION_ERRORS = new Set(["unauthorized", "password_change_required"]);
 
