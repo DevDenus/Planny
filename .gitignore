@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local backups
+deploy/backup/dumps/
+
+# Frontend
+node_modules/
+*.tsbuildinfo

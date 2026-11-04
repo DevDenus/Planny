@@ -1,0 +1,93 @@
+.backdrop {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: var(--space-6) var(--space-4);
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 46% 26% at 14% 66%, var(--glow-left), transparent 72%),
+    radial-gradient(ellipse 44% 24% at 92% 66%, var(--glow-right), transparent 72%),
+    var(--surface-page);
+}
+
+.ridges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-6);
+  width: 100%;
+  max-width: 540px;
+  padding: var(--space-8) 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface-glass);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-raised);
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  text-align: center;
+}
+
+.title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.subtitle {
+  color: var(--text-secondary);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+}
+
+.footer {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.status {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--accent);
+}
+
+/* On a phone the form takes the whole screen: no card around it. */
+@media (max-width: 767px) {
+  .backdrop {
+    align-items: flex-start;
+    padding-top: max(var(--space-8), env(safe-area-inset-top));
+  }
+
+  .panel {
+    max-width: none;
+    padding: var(--space-4) 0;
+    border: none;
+    border-radius: 0;
+    background: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+}

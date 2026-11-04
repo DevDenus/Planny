@@ -1,0 +1,14 @@
+.git
+.github
+backend
+deploy
+design
+docs
+**/.venv
+**/.mypy_cache
+**/.pytest_cache
+**/.ruff_cache
+**/__pycache__
+**/node_modules
+**/dist
+web/e2e

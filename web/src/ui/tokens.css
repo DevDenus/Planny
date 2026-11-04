@@ -1,0 +1,125 @@
+/*
+ * Style tokens. Colours are sampled from design/references. The dark theme is the only one
+ * in the MVP, but components use only these names, so a light theme means redefining them.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --surface-page: #00101a;
+  --surface-sidebar: #00141c;
+  --surface-panel: #041820;
+  --surface-card: #082028;
+  --surface-raised: #081820;
+  --surface-input: #0c2028;
+  --surface-hover: #10242c;
+  --surface-overlay: rgb(0 12 16 / 72%);
+  --surface-glass: rgb(8 36 40 / 78%);
+
+  /* Backdrop of the login and password screens */
+  --glow-left: rgb(6 96 94 / 80%);
+  --glow-right: rgb(4 78 80 / 72%);
+  --ridge-far: #03232c;
+  --ridge-mid: #021a22;
+  --ridge-near: #001219;
+
+  /* Text */
+  --text-primary: #fcfcfc;
+  --text-secondary: #c2cbce;
+  --text-muted: #a3afb4;
+  /* Darker than the references: white on this green is only about 2:1. */
+  --text-on-accent: #00231a;
+
+  /* Accent */
+  --accent: #12cc85;
+  --accent-bright: #0bf59b;
+  --accent-hover: #2fe09b;
+  --accent-muted: #084430;
+  --accent-gradient: linear-gradient(180deg, #16d98d 0%, #03bf78 100%);
+  --accent-gradient-hover: linear-gradient(180deg, #2fe09b 0%, #12cc85 100%);
+
+  /* States */
+  --state-success: #6ce582;
+  --state-warning: #fbc861;
+  --state-error: #f98a80;
+  --state-info: #3de6c9;
+  --state-success-fill: #0c4030;
+  --state-warning-fill: #403818;
+  --state-error-fill: #442024;
+  --state-info-fill: #102830;
+  --badge: #f94646;
+
+  /* Borders */
+  --border: #1d3843;
+  --border-strong: #30474e;
+  --border-focus: #57dba5;
+
+  /* Category and label palette: --cat-* is the solid colour, --cat-*-fill the muted fill */
+  --cat-violet: #b971f6;
+  --cat-violet-fill: #38254b;
+  --cat-blue: #5394f8;
+  --cat-blue-fill: #063356;
+  --cat-teal: #12ebe1;
+  --cat-teal-fill: #10585c;
+  --cat-green: #58c164;
+  --cat-green-fill: #083c2e;
+  --cat-yellow: #fbc861;
+  --cat-yellow-fill: #403818;
+  --cat-orange: #faa336;
+  --cat-orange-fill: #4a3112;
+  --cat-red: #f26a6b;
+  --cat-red-fill: #442024;
+  --cat-pink: #fa78a1;
+  --cat-pink-fill: #6c3050;
+
+  /* Priorities */
+  --priority-1: #f26a6b;
+  --priority-1-fill: #642424;
+  --priority-2: #faa336;
+  --priority-2-fill: #4a3112;
+  --priority-3: #c2cbce;
+  --priority-3-fill: #30444c;
+  --priority-4: #6ce582;
+  --priority-4-fill: #0c4030;
+
+  /* Shape */
+  --radius-xl: 20px;
+  --radius-lg: 16px;
+  --radius-md: 14px;
+  --radius-sm: 12px;
+  --radius-xs: 10px;
+  --radius-pill: 999px;
+
+  /* Type */
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 28px;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Sizes */
+  --control-height: 44px;
+  --control-height-lg: 52px;
+  --sidebar-width: 240px;
+  --sidebar-rail-width: 72px;
+  --topbar-height: 64px;
+  --aside-width: 340px;
+  --mobile-header-height: 56px;
+  --mobile-nav-height: 64px;
+
+  /* Motion */
+  --transition: 120ms ease;
+
+  --shadow-raised: 0 12px 32px rgb(0 0 0 / 40%);
+}
