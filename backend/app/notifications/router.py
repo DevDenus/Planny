@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query, status
 from app.core.db import DbSession
 from app.core.errors import ErrorResponse
 from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
-from app.identity.dependencies import CurrentPrincipal
+from app.identity.dependencies import CurrentSession, NotificationsRead
 from app.notifications import schemas, service
 
 ERRORS: dict[int | str, dict[str, Any]] = {
@@ -21,7 +21,7 @@ router = APIRouter(tags=["notifications"])
 
 @router.get("/notifications", responses=ERRORS)
 async def list_notifications(
-    principal: CurrentPrincipal,
+    principal: NotificationsRead,
     db: DbSession,
     unread_only: bool = False,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
@@ -33,7 +33,7 @@ async def list_notifications(
 
 
 @router.post("/notifications/read-all", status_code=status.HTTP_204_NO_CONTENT, responses=ERRORS)
-async def read_all_notifications(principal: CurrentPrincipal, db: DbSession) -> None:
+async def read_all_notifications(principal: CurrentSession, db: DbSession) -> None:
     await service.read_all(principal, db)
 
 
@@ -43,11 +43,11 @@ async def read_all_notifications(principal: CurrentPrincipal, db: DbSession) -> 
     responses=NOT_FOUND_ERRORS,
 )
 async def read_notification(
-    notification_id: UUID, principal: CurrentPrincipal, db: DbSession
+    notification_id: UUID, principal: CurrentSession, db: DbSession
 ) -> None:
     await service.read_notification(principal, db, notification_id)
 
 
 @router.get("/sync", tags=["sync"], responses=ERRORS)
-async def get_sync(principal: CurrentPrincipal, db: DbSession) -> schemas.SyncState:
+async def get_sync(principal: NotificationsRead, db: DbSession) -> schemas.SyncState:
     return await service.sync_state(principal, db)

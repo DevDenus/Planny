@@ -5,13 +5,19 @@ from fastapi import APIRouter, Header, status
 from app.core.db import DbSession
 from app.core.errors import ErrorResponse
 from app.identity import schemas, service
-from app.identity.dependencies import AnyPrincipal, BffOnly, CurrentPrincipal
+from app.identity.dependencies import (
+    AnyCaller,
+    BffOnly,
+    CurrentCaller,
+    CurrentSession,
+    PendingSession,
+)
 
 ERRORS: dict[int | str, dict[str, Any]] = {
     401: {"model": ErrorResponse},
     422: {"model": ErrorResponse},
 }
-PASSWORD_GATE_ERRORS: dict[int | str, dict[str, Any]] = {
+ACCESS_ERRORS: dict[int | str, dict[str, Any]] = {
     **ERRORS,
     403: {"model": ErrorResponse},
 }
@@ -45,9 +51,9 @@ async def login(
 
 
 @router.post(
-    "/auth/logout", tags=["auth"], status_code=status.HTTP_204_NO_CONTENT, responses=ERRORS
+    "/auth/logout", tags=["auth"], status_code=status.HTTP_204_NO_CONTENT, responses=ACCESS_ERRORS
 )
-async def logout(principal: AnyPrincipal, db: DbSession) -> None:
+async def logout(principal: PendingSession, db: DbSession) -> None:
     await service.logout(principal, db)
 
 
@@ -55,10 +61,10 @@ async def logout(principal: AnyPrincipal, db: DbSession) -> None:
     "/auth/change-password",
     tags=["auth"],
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=ERRORS,
+    responses=ACCESS_ERRORS,
 )
 async def change_password(
-    body: schemas.ChangePasswordRequest, principal: AnyPrincipal, db: DbSession
+    body: schemas.ChangePasswordRequest, principal: PendingSession, db: DbSession
 ) -> None:
     await service.change_password(
         principal,
@@ -69,19 +75,19 @@ async def change_password(
 
 
 @router.get("/me", tags=["profile"], responses=ERRORS)
-async def get_me(principal: AnyPrincipal, db: DbSession) -> schemas.CurrentUser:
+async def get_me(principal: AnyCaller, db: DbSession) -> schemas.CurrentUser:
     return schemas.CurrentUser.model_validate(await service.get_current_user(principal, db))
 
 
-@router.patch("/me", tags=["profile"], responses=PASSWORD_GATE_ERRORS)
+@router.patch("/me", tags=["profile"], responses=ACCESS_ERRORS)
 async def update_me(
-    body: schemas.UpdateProfileRequest, principal: CurrentPrincipal, db: DbSession
+    body: schemas.UpdateProfileRequest, principal: CurrentSession, db: DbSession
 ) -> schemas.CurrentUser:
     user = await service.update_profile(principal, db, **body.model_dump(exclude_none=True))
     return schemas.CurrentUser.model_validate(user)
 
 
-@router.get("/users", tags=["profile"], responses=PASSWORD_GATE_ERRORS)
-async def list_users(principal: CurrentPrincipal, db: DbSession) -> schemas.UserList:
+@router.get("/users", tags=["profile"], responses=ACCESS_ERRORS)
+async def list_users(principal: CurrentCaller, db: DbSession) -> schemas.UserList:
     users = await service.list_active_users(principal, db)
     return schemas.UserList(items=[schemas.UserSummary.model_validate(u) for u in users])

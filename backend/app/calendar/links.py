@@ -1,12 +1,11 @@
 """What the tasks module sees of the calendar. It imports nothing from tasks, so the calendar
 services can use the task services without an import cycle."""
 
-from collections.abc import Collection
 from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.calendar import series
@@ -54,13 +53,6 @@ async def linked_events(db: AsyncSession, user_id: UUID, task_id: UUID) -> list[
     return [summary_of(event, now) for event in rows]
 
 
-async def participating(db: AsyncSession, user_id: UUID, event_ids: Collection[UUID]) -> set[UUID]:
-    """Which of the events the user takes part in, deleted ones included."""
-    if not event_ids:
-        return set()
-    rows = await db.scalars(
-        select(EventParticipant.event_id).where(
-            EventParticipant.user_id == user_id, EventParticipant.event_id.in_(event_ids)
-        )
-    )
-    return set(rows)
+def events_of(user_id: UUID) -> Select[UUID]:
+    """The events the user takes part in, deleted ones included, as a subquery."""
+    return select(EventParticipant.event_id).where(EventParticipant.user_id == user_id)

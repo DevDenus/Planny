@@ -1,5 +1,6 @@
 import ipaddress
 import secrets
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Annotated
 
@@ -8,33 +9,77 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import get_settings
 from app.core.db import DbSession
-from app.core.errors import field_error, password_change_required, unauthorized
-from app.core.principal import Principal
+from app.core.errors import (
+    field_error,
+    insufficient_scope,
+    password_change_required,
+    unauthorized,
+)
+from app.core.principal import Principal, Scope
 from app.identity import service
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-async def get_principal_pending_password(
+async def get_caller(
     db: DbSession,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> Principal:
-    """For the few routes a user must reach before replacing the one-time password."""
+    """Anyone with a valid token, before the password gate and any scope."""
     if credentials is None:
         raise unauthorized()
     return await service.authenticate(db, credentials.credentials)
 
 
-async def get_principal(
-    principal: Annotated[Principal, Depends(get_principal_pending_password)],
-) -> Principal:
-    if principal.must_change_password:
+async def get_pending_session(caller: Annotated[Principal, Depends(get_caller)]) -> Principal:
+    """For the few routes a user must reach before replacing the one-time password."""
+    if caller.kind != "session":
+        raise insufficient_scope()
+    return caller
+
+
+async def get_session(session: Annotated[Principal, Depends(get_pending_session)]) -> Principal:
+    if session.must_change_password:
         raise password_change_required()
-    return principal
+    return session
 
 
-AnyPrincipal = Annotated[Principal, Depends(get_principal_pending_password)]
-CurrentPrincipal = Annotated[Principal, Depends(get_principal)]
+def require_scopes(*required: Scope) -> Callable[..., Awaitable[Principal]]:
+    """Opens a route to the keys that hold every scope listed. A session passes with any list."""
+
+    async def check(caller: Annotated[Principal, Depends(get_caller)]) -> Principal:
+        if caller.must_change_password:
+            raise password_change_required()
+        if not caller.allows(*required):
+            raise insufficient_scope(required)
+        return caller
+
+    return check
+
+
+# A route is closed to keys unless it asks for scopes, so forgetting them can't widen what a
+# key reaches.
+PendingSession = Annotated[Principal, Depends(get_pending_session)]
+CurrentSession = Annotated[Principal, Depends(get_session)]
+
+# Who the key is and who it can name. Neither says anything about events or tasks.
+AnyCaller = Annotated[Principal, Depends(get_caller)]
+CurrentCaller = Annotated[Principal, Depends(require_scopes())]
+
+EventsRead = Annotated[Principal, Depends(require_scopes(Scope.events_read))]
+EventsWrite = Annotated[Principal, Depends(require_scopes(Scope.events_write))]
+AvailabilityRead = Annotated[Principal, Depends(require_scopes(Scope.availability_read))]
+TasksRead = Annotated[Principal, Depends(require_scopes(Scope.tasks_read))]
+TasksWrite = Annotated[Principal, Depends(require_scopes(Scope.tasks_write))]
+NotificationsRead = Annotated[Principal, Depends(require_scopes(Scope.notifications_read))]
+
+# For the routes that touch both sides at once.
+EventsAndTasksRead = Annotated[
+    Principal, Depends(require_scopes(Scope.events_read, Scope.tasks_read))
+]
+EventsAndTasksWrite = Annotated[
+    Principal, Depends(require_scopes(Scope.events_write, Scope.tasks_write))
+]
 
 
 @dataclass(frozen=True, slots=True)

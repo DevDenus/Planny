@@ -86,6 +86,7 @@ erDiagram
 | `expires_at` | timestamptz, null | `NULL` — бессрочный |
 | `last_used_at` | timestamptz, null | Пишется не чаще раза в минуту |
 | `revoked_at` | timestamptz, null | |
+| `created_at` | timestamptz | |
 
 ### `login_attempt`
 

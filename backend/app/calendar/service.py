@@ -20,7 +20,7 @@ from app.core.errors import (
     version_conflict,
 )
 from app.core.period import Period, period_of
-from app.core.principal import Principal
+from app.core.principal import Principal, Scope
 from app.identity import service as identity
 from app.identity.models import User
 from app.identity.schemas import UserSummary
@@ -68,7 +68,7 @@ def _recurrence_of(event: models.Event) -> schemas.Recurrence | None:
 
 
 async def _event_out(
-    db: AsyncSession, event: models.Event, user_id: UUID, category_id: UUID | None
+    principal: Principal, db: AsyncSession, event: models.Event, category_id: UUID | None
 ) -> schemas.Event:
     """Built before the commit, so a response never describes a different state than it wrote."""
     participant_ids = [
@@ -76,6 +76,12 @@ async def _event_out(
     ]
     users = await _users(db, {*participant_ids, event.created_by})
     task_ids = await repository.linked_task_ids(db, event.id)
+    # A task is behind its own scope, even when it hangs off an event the key may read.
+    linked_tasks = (
+        await task_service.visible_tasks(db, principal.user_id, task_ids)
+        if principal.allows(Scope.tasks_read)
+        else []
+    )
     return schemas.Event(
         id=event.id,
         title=event.title,
@@ -91,8 +97,8 @@ async def _event_out(
         created_by=_summary(users[event.created_by]),
         participants=[_summary(users[participant]) for participant in participant_ids],
         category_id=category_id,
-        reminder_minutes=await reminders.event_minutes(db, event.id, user_id),
-        linked_tasks=await task_service.visible_tasks(db, user_id, task_ids),
+        reminder_minutes=await reminders.event_minutes(db, event.id, principal.user_id),
+        linked_tasks=linked_tasks,
         version=event.version,
         created_at=event.created_at,
         updated_at=event.updated_at,
@@ -104,7 +110,7 @@ async def get_event(principal: Principal, db: AsyncSession, event_id: UUID) -> s
     if found is None:
         raise not_found()
     event, category_id = found
-    return await _event_out(db, event, principal.user_id, category_id)
+    return await _event_out(principal, db, event, category_id)
 
 
 async def _period(principal: Principal, db: AsyncSession, params: schemas.PeriodParams) -> Period:
@@ -161,7 +167,7 @@ async def calendar_items(
     # The calendar of a board is an overview of the board: it has no events.
     if "events" in params.layers and params.board_id is None:
         items.extend(await _occurrences(principal, db, period))
-    if "tasks" in params.layers:
+    if "tasks" in params.layers and principal.allows(Scope.tasks_read):
         deadlines = await task_service.deadlines(
             principal, db, period, params.board_id, params.assignee, params.label_id
         )
@@ -319,7 +325,7 @@ async def _repeated_event(
     mine = await repository.get_participant(db, event_id, principal.user_id)
     if event.created_by != principal.user_id or event.deleted_at is not None or mine is None:
         raise id_conflict()
-    return await _event_out(db, event, principal.user_id, mine.category_id)
+    return await _event_out(principal, db, event, mine.category_id)
 
 
 async def create_event(
@@ -376,7 +382,7 @@ async def create_event(
     await reminders.set_event_minutes(db, event, principal.user_id, body.reminder_minutes, utcnow())
     notified = _notify(db, principal, event, others, NotificationKind.event_added)
     await _publish(db, {principal.user_id, *others}, notified)
-    created = await _event_out(db, event, principal.user_id, body.category_id)
+    created = await _event_out(principal, db, event, body.category_id)
     await db.commit()
     return created
 
@@ -410,7 +416,7 @@ async def update_event(
 
     # A change of what is one's own conflicts with nothing that others can do.
     if body.model_fields_set - PERSONAL_FIELDS and event.version != body.version:
-        current = await _event_out(db, event, principal.user_id, category_id)
+        current = await _event_out(principal, db, event, category_id)
         raise _conflict(current)
 
     title_before = event.title
@@ -464,7 +470,7 @@ async def update_event(
         await _publish(db, current_ids | added, notified)
     elif personal:
         await _publish(db, {principal.user_id})
-    updated = await _event_out(db, event, principal.user_id, category_id)
+    updated = await _event_out(principal, db, event, category_id)
     await db.commit()
     return updated
 
