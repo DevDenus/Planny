@@ -133,11 +133,9 @@ erDiagram
 | `start_date`, `end_date` | date, null | Первый экземпляр события на весь день, `end_date` включительно |
 | `timezone` | text | IANA-зона, в которой событие создано |
 | `recurrence_rule` | text, null | RRULE, у разового события `NULL` |
-| `series_end_at` | timestamptz, null | Конец последнего экземпляра, у бесконечной серии `NULL`. Служебное поле для отбора по периоду |
+| `series_end_at` | timestamptz, null | Конец последнего экземпляра, у разового события его конец, у бесконечной серии `NULL`. Служебное поле для отбора по периоду |
 | `version` | int | Счётчик для обнаружения конфликтов |
 | `deleted_at` | timestamptz, null | |
-
-Поля `recurrence_rule` и `series_end_at` появятся на этапе 5 вместе с сериями.
 
 Для события на весь день `series_end_at` считается как 00:00 UTC следующего дня после конца последнего экземпляра. Запрос периода расширяет окно на день в обе стороны, а точный отбор выполняется после развёртки.
 
@@ -220,12 +218,15 @@ CHECK (
 | `start_date` | date, null | Начало периода актуальности |
 | `due_date` | date, null | Дедлайн без времени |
 | `due_at` | timestamptz, null | Дедлайн со временем |
+| `due_notified_at` | timestamptz, null | Срок объявлен или уже прошёл, когда его поставили. Пересчитывается при смене срока и при возврате карточки в работу |
 | `completed_at` | timestamptz, null | Ставится при переносе в завершающую колонку и очищается при переносе из неё |
 | `created_by` | uuid, FK | |
 | `version` | int | |
 | `deleted_at` | timestamptz, null | |
 
 `CHECK (NOT (due_date IS NOT NULL AND due_at IS NOT NULL))`: дедлайн задаётся одним из двух полей.
+
+По уведомлениям этого не понять: прочитанные удаляются через 90 дней, и карточка, просроченная дольше, была бы объявлена снова.
 
 ### `task_assignee`
 
@@ -364,7 +365,8 @@ CHECK (
 | Таблица | Индекс | Зачем |
 |---|---|---|
 | `event_participant` | `(user_id, event_id)` | Календарь пользователя |
-| `event` | `(series_end_at)` | Отбор по периоду, появится на этапе 5 |
+| `event` | `(series_end_at)` | Отбор по периоду |
+| `reminder` | `(event_id)` | Пересчёт напоминаний при изменении события |
 | `reminder` | `(next_fire_at) WHERE next_fire_at IS NOT NULL` | Очередь worker |
 | `task` | `(board_id, column_id, position)` | Порядок карточек |
 | `task` | `UNIQUE (column_id, position) WHERE deleted_at IS NULL` | Страховка от одинаковых ключей |

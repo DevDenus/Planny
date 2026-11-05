@@ -82,7 +82,7 @@ export function CalendarPage() {
   );
   const openItem = (item: CalendarItem) => {
     if (item.type === "task") openTask(item.task_id);
-    else openEvent(item.event_id);
+    else openEvent(item.event_id, item.occurrence_start);
   };
 
   return (

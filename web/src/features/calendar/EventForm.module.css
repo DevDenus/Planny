@@ -11,6 +11,12 @@
   align-items: start;
 }
 
+.hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
 .allDay {
   flex-direction: row-reverse;
   justify-content: space-between;

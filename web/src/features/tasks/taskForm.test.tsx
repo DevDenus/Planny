@@ -786,6 +786,165 @@ describe("labels", () => {
   });
 });
 
+describe("reminder", () => {
+  it("shows the personal reminder in the user's zone", async () => {
+    const personal = makeBoard({ is_default: true });
+    const day = dayFromToday(4);
+    // 06:00 UTC is 09:00 in Moscow.
+    const task = makeTask({
+      board_id: personal.id,
+      title: "Купить хлеб",
+      reminder_at: `${day}T06:00:00Z`,
+    });
+    openTask(task, { boards: [personal] });
+
+    const dialog = await formDialog("Задача");
+    await within(dialog).findByDisplayValue("Купить хлеб");
+    expect(within(dialog).getByLabelText("Напоминание")).toHaveValue(day);
+    expect(within(dialog).getByLabelText("Время напоминания")).toHaveValue("09:00");
+  });
+
+  it("sets the reminder to 09:00 on the day of the deadline", async () => {
+    const personal = makeBoard({ is_default: true });
+    const day = dayFromToday(5);
+    const task = makeTask({
+      board_id: personal.id,
+      title: "Купить хлеб",
+      version: 4,
+      due_date: day,
+    });
+    const { calls } = openTask(task, { boards: [personal], onRequest: SAVED });
+
+    const user = userEvent.setup();
+    const dialog = await formDialog("Задача");
+    await within(dialog).findByDisplayValue("Купить хлеб");
+    await user.click(within(dialog).getByRole("button", { name: "В день срока в 09:00" }));
+
+    expect(within(dialog).getByLabelText("Напоминание")).toHaveValue(day);
+    expect(within(dialog).getByLabelText("Время напоминания")).toHaveValue("09:00");
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const [patch] = requestsTo(calls, "PATCH", `${TASKS}/${task.id}`);
+    // 09:00 in Moscow is 06:00 UTC. The deadline is unchanged, so it is not sent.
+    expect(await bodyOf(patch!)).toEqual({ reminder_at: `${day}T06:00:00Z`, version: 4 });
+  });
+
+  it("sets the reminder to 09:00 the day before the deadline", async () => {
+    const personal = makeBoard({ is_default: true });
+    const task = makeTask({
+      board_id: personal.id,
+      title: "Купить хлеб",
+      version: 4,
+      due_date: dayFromToday(5),
+    });
+    const { calls } = openTask(task, { boards: [personal], onRequest: SAVED });
+
+    const user = userEvent.setup();
+    const dialog = await formDialog("Задача");
+    await within(dialog).findByDisplayValue("Купить хлеб");
+    await user.click(within(dialog).getByRole("button", { name: "За день в 09:00" }));
+
+    expect(within(dialog).getByLabelText("Напоминание")).toHaveValue(dayFromToday(4));
+    expect(within(dialog).getByLabelText("Время напоминания")).toHaveValue("09:00");
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const [patch] = requestsTo(calls, "PATCH", `${TASKS}/${task.id}`);
+    expect(await bodyOf(patch!)).toEqual({
+      reminder_at: `${dayFromToday(4)}T06:00:00Z`,
+      version: 4,
+    });
+  });
+
+  it("disables the quick reminders until the task has a deadline", async () => {
+    const personal = makeBoard({ is_default: true });
+    const task = makeTask({ board_id: personal.id, title: "Купить хлеб" });
+    openTask(task, { boards: [personal] });
+
+    const user = userEvent.setup();
+    const dialog = await formDialog("Задача");
+    await within(dialog).findByDisplayValue("Купить хлеб");
+    expect(within(dialog).getByRole("button", { name: "В день срока в 09:00" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "За день в 09:00" })).toBeDisabled();
+
+    await user.type(within(dialog).getByLabelText("Дедлайн"), dayFromToday(5));
+    expect(within(dialog).getByRole("button", { name: "В день срока в 09:00" })).toBeEnabled();
+    expect(within(dialog).getByRole("button", { name: "За день в 09:00" })).toBeEnabled();
+  });
+
+  it("clears the reminder and sends reminder_at as null", async () => {
+    const personal = makeBoard({ is_default: true });
+    const day = dayFromToday(5);
+    const task = makeTask({
+      board_id: personal.id,
+      title: "Купить хлеб",
+      version: 4,
+      due_date: day,
+      reminder_at: `${day}T06:00:00Z`,
+    });
+    const { calls } = openTask(task, { boards: [personal], onRequest: SAVED });
+
+    const user = userEvent.setup();
+    const dialog = await formDialog("Задача");
+    await within(dialog).findByDisplayValue("Купить хлеб");
+    await user.click(within(dialog).getByRole("button", { name: "Без напоминания" }));
+
+    expect(within(dialog).getByLabelText("Напоминание")).toHaveValue("");
+    expect(within(dialog).getByLabelText("Время напоминания")).toHaveValue("");
+    expect(
+      within(dialog).queryByRole("button", { name: "Без напоминания" }),
+    ).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const [patch] = requestsTo(calls, "PATCH", `${TASKS}/${task.id}`);
+    expect(await bodyOf(patch!)).toEqual({ reminder_at: null, version: 4 });
+  });
+
+  it("asks for the time next to a reminder date, and sends nothing", async () => {
+    const personal = makeBoard({ is_default: true });
+    const calls = stubApp({ boards: [personal], onRequest: CREATED });
+    renderApp("/tasks");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Новая задача" }));
+    const dialog = await formDialog("Новая задача");
+    await user.type(
+      await within(dialog).findByRole("textbox", { name: "Название" }),
+      "Купить хлеб",
+    );
+    await user.type(within(dialog).getByLabelText("Напоминание"), dayFromToday(5));
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    expect(await within(dialog).findByText("Укажите дату и время")).toBeInTheDocument();
+    expect(requestsTo(calls, "POST", TASKS)).toHaveLength(0);
+  });
+
+  it("sends the reminder as an instant with a new task", async () => {
+    const personal = makeBoard({ is_default: true });
+    const day = dayFromToday(5);
+    const calls = stubApp({ boards: [personal], onRequest: CREATED });
+    renderApp("/tasks");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Новая задача" }));
+    const dialog = await formDialog("Новая задача");
+    await user.type(
+      await within(dialog).findByRole("textbox", { name: "Название" }),
+      "Купить хлеб",
+    );
+    await user.type(within(dialog).getByLabelText("Напоминание"), day);
+    await user.type(within(dialog).getByLabelText("Время напоминания"), "18:00");
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const [post] = requestsTo(calls, "POST", TASKS);
+    // 18:00 in Moscow is 15:00 UTC.
+    expect(await bodyOf(post!)).toMatchObject({ reminder_at: `${day}T15:00:00Z` });
+  });
+});
+
 describe("moving to another board", () => {
   it("saves the changed fields first, then moves the card to the first open column there", async () => {
     const personal = makeBoard({ is_default: true, name: "Личная" });

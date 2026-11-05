@@ -24,7 +24,9 @@ from app.core.principal import Principal
 from app.identity import service as identity
 from app.identity.schemas import UserSummary
 from app.notifications import service as notifications
+from app.notifications import sync
 from app.notifications.models import NotificationKind
+from app.reminders import service as reminders
 from app.tasks import board_service, models, repository, schemas
 from app.tasks.board_service import BoardAccess
 from app.tasks.models import ActivityKind
@@ -32,6 +34,9 @@ from app.tasks.models import ActivityKind
 # The order of `changes` in the history. The description is logged only as a fact of change,
 # so the journal doesn't keep copies of the texts.
 EDITABLE_FIELDS = ("title", "description", "priority", "start_date", "due_date", "due_at")
+PERSONAL_FIELDS = frozenset({"reminder_at", "version"})
+# Assignees hear of these. The description and the start date change nothing they planned around.
+NOTIFIED_FIELDS = frozenset({"title", "priority", "due_date", "due_at"})
 ASSIGNEE_NOT_MEMBER = "Исполнителем может быть только участник доски"
 LABEL_NOT_FOUND = "Метка не найдена"
 
@@ -92,6 +97,7 @@ async def _task_out(
         description=task.description,
         checklist=[schemas.ChecklistItem.model_validate(item) for item in checklist],
         linked_events=await linked_events(db, principal.user_id, task.id),
+        reminder_at=await reminders.task_remind_at(db, task.id, principal.user_id),
         created_by=UserSummary.model_validate(author),
         version=task.version,
         created_at=task.created_at,
@@ -265,6 +271,25 @@ async def _label(
     return bool(new_ids or gone_ids)
 
 
+def _arm_deadline(task: models.Task, now: datetime, timezone: ZoneInfo) -> None:
+    """A deadline that moved is announced anew, and one already behind has nothing to announce:
+    "today is the deadline" would be false. A date counts until its day is over."""
+    if task.due_at is not None:
+        passed = task.due_at <= now
+    else:
+        passed = task.due_date is not None and task.due_date < now.astimezone(timezone).date()
+    task.due_notified_at = now if passed else None
+
+
+async def _set_reminder(
+    principal: Principal, db: AsyncSession, task_id: UUID, remind_at: datetime | None, now: datetime
+) -> bool:
+    if remind_at == await reminders.task_remind_at(db, task_id, principal.user_id):
+        return False
+    await reminders.set_task_remind_at(db, task_id, principal.user_id, remind_at, now)
+    return True
+
+
 def _notify_assigned(
     db: AsyncSession, principal: Principal, task: models.Task, user_ids: set[UUID]
 ) -> set[UUID]:
@@ -310,9 +335,8 @@ async def create_task(
         raise not_found()
     target = await board_service.access(principal, db, board_id)
     board_service.require_writable(target)
-    _check_dates(
-        body.start_date, body.due_date, body.due_at, await identity.timezone_of(principal, db)
-    )
+    timezone = await identity.timezone_of(principal, db)
+    _check_dates(body.start_date, body.due_date, body.due_at, timezone)
 
     if body.column_id is None:
         column = await repository.lock_first_column(db, board_id, is_done=False)
@@ -335,6 +359,8 @@ async def create_task(
         completed_at=utcnow() if column.is_done else None,
         created_by=principal.user_id,
     )
+    now = utcnow()
+    _arm_deadline(task, now, timezone)
     if body.id is not None:
         task.id = body.id
     db.add(task)
@@ -359,6 +385,8 @@ async def create_task(
         repository.add_activity(
             db, task.id, principal.user_id, ActivityKind.checklist_added, {"text": text}
         )
+    if body.reminder_at is not None:
+        await reminders.set_task_remind_at(db, task.id, principal.user_id, body.reminder_at, now)
     notified = _notify_assigned(db, principal, task, added)
     await board_service.publish(db, board_id, notified=notified)
     created = await _task_out(principal, db, task, target.board.name)
@@ -408,17 +436,34 @@ async def _version_conflict(
     return version_conflict(current.model_dump(mode="json"), last_change=last_change)
 
 
+async def _update_own(
+    principal: Principal, db: AsyncSession, task_id: UUID, body: schemas.TaskUpdate
+) -> schemas.Task:
+    """A reminder changes nothing on the card: the right to read it is enough."""
+    task, target = await readable(principal, db, task_id)
+    if await _set_reminder(principal, db, task.id, body.reminder_at, utcnow()):
+        await sync.bump(db, tasks_for=[principal.user_id])
+    updated = await _task_out(principal, db, task, target.board.name)
+    await db.commit()
+    return updated
+
+
 async def update_task(
     principal: Principal, db: AsyncSession, task_id: UUID, body: schemas.TaskUpdate
 ) -> schemas.Task:
+    if "reminder_at" in body.model_fields_set and body.model_fields_set <= PERSONAL_FIELDS:
+        return await _update_own(principal, db, task_id, body)
+
     task, target = await locked_writable(principal, db, task_id)
     if task.version != body.version:
         raise await _version_conflict(principal, db, task, target.board.name)
 
     changes = _apply_fields(task, body)
-    _check_dates(
-        task.start_date, task.due_date, task.due_at, await identity.timezone_of(principal, db)
-    )
+    timezone = await identity.timezone_of(principal, db)
+    _check_dates(task.start_date, task.due_date, task.due_at, timezone)
+    now = utcnow()
+    if any(change["field"] in ("due_date", "due_at") for change in changes):
+        _arm_deadline(task, now, timezone)
     if changes:
         repository.add_activity(
             db, task.id, principal.user_id, ActivityKind.updated, {"changes": changes}
@@ -431,11 +476,27 @@ async def update_task(
     if body.label_ids is not None:
         labeled = await _label(principal, db, task, set(body.label_ids))
 
+    reminded = "reminder_at" in body.model_fields_set and await _set_reminder(
+        principal, db, task.id, body.reminder_at, now
+    )
     if changes or added or removed or labeled:
         task.version += 1
-        await board_service.publish(
-            db, task.board_id, notified=_notify_assigned(db, principal, task, added)
-        )
+        notified = _notify_assigned(db, principal, task, added)
+        if any(change["field"] in NOTIFIED_FIELDS for change in changes):
+            # Those just added hear of the assignment instead.
+            recipients = set(await repository.assignee_ids(db, task.id)) - added
+            notified |= notifications.notify(
+                db,
+                recipients,
+                NotificationKind.task_updated,
+                actor_id=principal.user_id,
+                title=task.title,
+                task_id=task.id,
+                board_id=task.board_id,
+            )
+        await board_service.publish(db, task.board_id, notified=notified)
+    elif reminded:
+        await sync.bump(db, tasks_for=[principal.user_id])
     updated = await _task_out(principal, db, task, target.board.name)
     await db.commit()
     return updated
@@ -472,8 +533,9 @@ async def relocate(
     task.position = position
     if target.is_done and task.completed_at is None:
         task.completed_at = utcnow()
-    elif not target.is_done:
+    elif not target.is_done and task.completed_at is not None:
         task.completed_at = None
+        _arm_deadline(task, utcnow(), await identity.timezone_of(principal, db))
     if source.id == target.id:
         return  # Reordering within a column stays out of the history.
     kind = ActivityKind.moved

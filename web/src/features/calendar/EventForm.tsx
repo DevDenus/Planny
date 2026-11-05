@@ -25,8 +25,21 @@ import { useUsers } from "../boards/api";
 import { failureMessage } from "../tasks/api";
 import { fromLocalInput, toLocalInput } from "../tasks/dates";
 import { useCategories, useCreateEvent, useLinkEvent, useUpdateEvent } from "./api";
+import { dayNumber } from "./period";
 import { BusyHint } from "./BusyHint";
 import styles from "./EventForm.module.css";
+import {
+  MAX_SERIES_COUNT,
+  NO_REMINDER,
+  NO_REPEAT,
+  REMINDER_OPTIONS,
+  REPEAT_OPTIONS,
+  SERIES_END_OPTIONS,
+  reminderMinutes,
+  reminderValue,
+  type RecurrenceFreq,
+  type SeriesEnd,
+} from "./recurrence";
 
 const TITLE_MAX_LENGTH = 200;
 const LOCATION_MAX_LENGTH = 500;
@@ -36,6 +49,8 @@ const DEFAULT_START = "09:00";
 const DEFAULT_END = "10:00";
 /** The event was deleted while the form was open. */
 const GONE = "Событие удалили, пока вы его редактировали";
+/** The first day of the month that some months don't have. */
+const FIRST_SKIPPED_DAY = 29;
 
 export type EventDraft = {
   title: string;
@@ -44,17 +59,29 @@ export type EventDraft = {
   startTime: string;
   endDate: string;
   endTime: string;
+  repeat: RecurrenceFreq | typeof NO_REPEAT;
+  seriesEnd: SeriesEnd;
+  until: string;
+  count: string;
   participantIds: string[];
   categoryId: string;
+  reminder: string;
   location: string;
   description: string;
 };
 
-type FieldErrors = { title?: string; start?: string; end?: string };
+type FieldErrors = {
+  title?: string;
+  start?: string;
+  end?: string;
+  until?: string;
+  count?: string;
+};
 
 export function draftOf(event: CalendarEvent, timeZone: string): EventDraft {
   const start = toLocalInput(event.start_at, timeZone);
   const end = toLocalInput(event.end_at, timeZone);
+  const { recurrence } = event;
   return {
     title: event.title,
     allDay: event.all_day,
@@ -62,8 +89,13 @@ export function draftOf(event: CalendarEvent, timeZone: string): EventDraft {
     startTime: start.time,
     endDate: event.end_date ?? end.date,
     endTime: end.time,
+    repeat: recurrence?.freq ?? NO_REPEAT,
+    seriesEnd: recurrence?.until ? "until" : recurrence?.count ? "count" : "never",
+    until: recurrence?.until ?? "",
+    count: recurrence?.count ? String(recurrence.count) : "",
     participantIds: event.participants.map((person) => person.id),
     categoryId: event.category_id ?? NO_CATEGORY,
+    reminder: reminderValue(event.reminder_minutes),
     location: event.location ?? "",
     description: event.description ?? "",
   };
@@ -87,8 +119,13 @@ export function newDraft(
     startTime,
     endDate: day,
     endTime,
+    repeat: NO_REPEAT,
+    seriesEnd: "never",
+    until: "",
+    count: "",
     participantIds: [userId],
     categoryId: NO_CATEGORY,
+    reminder: NO_REMINDER,
     location: "",
     description: "",
   };
@@ -110,6 +147,15 @@ function eventTime(draft: EventDraft, timeZone: string) {
     end_date: null,
     start_at: fromLocalInput(draft.startDate, draft.startTime, timeZone),
     end_at: fromLocalInput(draft.endDate, draft.endTime, timeZone),
+  };
+}
+
+function recurrence(draft: EventDraft): EventCreate["recurrence"] {
+  if (draft.repeat === NO_REPEAT) return null;
+  return {
+    freq: draft.repeat,
+    until: draft.seriesEnd === "until" ? draft.until : null,
+    count: draft.seriesEnd === "count" ? Number(draft.count) : null,
   };
 }
 
@@ -140,10 +186,16 @@ function changes(
     }),
     ...(draft.location.trim() !== before.location && { location: draft.location.trim() || null }),
     ...(timeChanged && eventTime(draft, timeZone)),
+    ...(JSON.stringify(recurrence(draft)) !== JSON.stringify(recurrence(before)) && {
+      recurrence: recurrence(draft),
+    }),
     ...(!sameIds(draft.participantIds, before.participantIds) && {
       participant_ids: draft.participantIds,
     }),
     ...(draft.categoryId !== before.categoryId && { category_id: draft.categoryId || null }),
+    ...(draft.reminder !== before.reminder && {
+      reminder_minutes: reminderMinutes(draft.reminder),
+    }),
   };
 }
 
@@ -155,9 +207,28 @@ function createBody(draft: EventDraft, timeZone: string, id: string): EventCreat
     location: draft.location.trim() || null,
     ...eventTime(draft, timeZone),
     timezone: timeZone,
+    recurrence: recurrence(draft),
     participant_ids: draft.participantIds,
     category_id: draft.categoryId || null,
+    reminder_minutes: reminderMinutes(draft.reminder),
   };
+}
+
+function checkSeries(draft: EventDraft, errors: FieldErrors, saved?: EventDraft): void {
+  if (draft.repeat === NO_REPEAT) return;
+  if (draft.seriesEnd === "until") {
+    // Until is in the event's zone and the start in the viewer's: an accepted pair stands.
+    const accepted =
+      saved !== undefined && draft.until === saved.until && draft.startDate === saved.startDate;
+    if (!draft.until) errors.until = "Укажите дату";
+    else if (!accepted && draft.until < draft.startDate) errors.until = "Не раньше начала";
+  }
+  if (draft.seriesEnd === "count") {
+    const count = Number(draft.count);
+    if (!Number.isInteger(count) || count < 1 || count > MAX_SERIES_COUNT) {
+      errors.count = `От 1 до ${MAX_SERIES_COUNT}`;
+    }
+  }
 }
 
 /**
@@ -170,6 +241,7 @@ export function validate(draft: EventDraft, saved?: EventDraft): FieldErrors {
   if (!draft.title.trim()) errors.title = "Введите название";
   if (!draft.startDate || (!draft.allDay && !draft.startTime)) errors.start = "Укажите начало";
   if (!draft.endDate || (!draft.allDay && !draft.endTime)) errors.end = "Укажите конец";
+  checkSeries(draft, errors, saved);
   if (errors.start || errors.end) return errors;
   if (saved !== undefined && sameTime(draft, saved)) return errors;
   if (draft.endDate < draft.startDate) {
@@ -241,10 +313,8 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
   }, [event, users, user]);
   const chosen = people.filter((person) => draft.participantIds.includes(person.id));
 
-  const moments =
-    !draft.allDay && Object.keys(validate(draft)).every((field) => field === "title")
-      ? eventTime(draft, timeZone)
-      : null;
+  const { start: startError, end: endError } = validate(draft);
+  const moments = !draft.allDay && !startError && !endError ? eventTime(draft, timeZone) : null;
 
   const fail = (error: unknown) => {
     if (error instanceof ApiError && error.code === "version_conflict") {
@@ -252,10 +322,10 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
     } else if (error instanceof ApiError && error.status === 404) {
       setFailure(GONE);
     } else if (error instanceof ApiError && Object.keys(error.fields).length > 0) {
-      const { title, start_at, start_date, end_at, end_date } = error.fields;
-      const known = { title, start: start_at ?? start_date, end: end_at ?? end_date };
+      const { title, start_at, start_date, end_at, end_date, recurrence: until } = error.fields;
+      const known = { title, start: start_at ?? start_date, end: end_at ?? end_date, until };
       setErrors(known);
-      if (!known.title && !known.start && !known.end) setFailure(failureMessage(error));
+      if (!Object.values(known).some(Boolean)) setFailure(failureMessage(error));
     } else {
       setFailure(failureMessage(error));
     }
@@ -370,6 +440,46 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
             />
           )}
         </div>
+        <SelectField
+          label="Повторение"
+          value={draft.repeat}
+          options={REPEAT_OPTIONS}
+          onChange={(change) => set({ repeat: change.target.value as EventDraft["repeat"] })}
+        />
+        {draft.repeat !== NO_REPEAT && (
+          <div className={styles.moment}>
+            <SelectField
+              label="Окончание серии"
+              value={draft.seriesEnd}
+              options={SERIES_END_OPTIONS}
+              onChange={(change) => set({ seriesEnd: change.target.value as SeriesEnd })}
+            />
+            {draft.seriesEnd === "until" && (
+              <TextField
+                label="Последний день"
+                type="date"
+                value={draft.until}
+                error={errors.until}
+                onChange={(change) => set({ until: change.target.value })}
+              />
+            )}
+            {draft.seriesEnd === "count" && (
+              <TextField
+                label="Сколько раз"
+                type="number"
+                min={1}
+                max={MAX_SERIES_COUNT}
+                value={draft.count}
+                error={errors.count}
+                onChange={(change) => set({ count: change.target.value })}
+              />
+            )}
+          </div>
+        )}
+        {draft.repeat === "monthly" && dayNumber(draft.startDate) >= FIRST_SKIPPED_DAY && (
+          <p className={styles.hint}>В месяцах без этого числа повтор пропускается</p>
+        )}
+        {event?.recurrence && <p className={styles.hint}>Изменения применятся ко всей серии</p>}
         <fieldset className={styles.people}>
           <legend className={styles.legend}>Участники</legend>
           {people.map((person) => (
@@ -410,6 +520,12 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
             })),
           ]}
           onChange={(change) => set({ categoryId: change.target.value })}
+        />
+        <SelectField
+          label="Напоминание"
+          value={draft.reminder}
+          options={REMINDER_OPTIONS}
+          onChange={(change) => set({ reminder: change.target.value })}
         />
         <TextField
           label="Место"

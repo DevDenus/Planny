@@ -5,7 +5,7 @@ import interactionPlugin from "@fullcalendar/react/interaction";
 import ruLocale from "@fullcalendar/react/locales/ru";
 import classicTheme from "@fullcalendar/react/themes/classic";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
-import { CheckSquare, Square, Users } from "lucide-react";
+import { CheckSquare, Repeat, Square, Users } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
 import type { CalendarItem, CategoryColor } from "../../api/client";
@@ -48,14 +48,18 @@ function GridItem({ item, timeZone }: { item: CalendarItem; timeZone: string }) 
       </span>
     );
   }
+  const shared = item.participants.length > 1;
   return (
     <span className={styles.event}>
       <span className={styles.title} title={item.title}>
         {item.title}
       </span>
       {!item.all_day && <span className={styles.time}>{eventTime(item, timeZone)}</span>}
-      {item.participants.length > 1 && (
-        <Users className={styles.shared} size={13} role="img" aria-label="Совместное" />
+      {(item.is_recurring || shared) && (
+        <span className={styles.marks}>
+          {item.is_recurring && <Repeat size={13} role="img" aria-label="Повторяется" />}
+          {shared && <Users size={13} role="img" aria-label="Совместное" />}
+        </span>
       )}
     </span>
   );

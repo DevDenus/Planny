@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from httpx import AsyncClient
 
 from tests.helpers import add_member, create_task, signed_in
@@ -198,3 +199,137 @@ async def test_notifications_page_newest_first_with_a_cursor(client: AsyncClient
     )
     assert [item["title"] for item in second["items"]] == ["Семья"]
     assert second["next_cursor"] is None
+
+
+@pytest.mark.parametrize(
+    ("change", "title"),
+    [
+        ({"title": "Смета 2"}, "Смета 2"),
+        ({"priority": 1}, "Смета"),
+        ({"due_date": "2026-11-20"}, "Смета"),
+        ({"due_at": "2026-11-20T12:00:00+03:00"}, "Смета"),
+    ],
+)
+async def test_changing_the_title_priority_or_deadline_tells_the_assignees(
+    client: AsyncClient, change: dict[str, object], title: str
+) -> None:
+    owner_user, owner = await signed_in(client, "sasha")
+    boris, boris_headers = await signed_in(client, "boris")
+    board_id = await shared_board(client, owner, str(boris.id))
+    task = await create_task(
+        client, owner, board_id=board_id, title="Смета", assignee_ids=[str(boris.id)]
+    )
+
+    edited = await client.patch(f"tasks/{task['id']}", json={"version": 1, **change}, headers=owner)
+    assert edited.status_code == 200, edited.text
+
+    items = (await notification_page(client, boris_headers))["items"]
+    notices = [item for item in items if item["kind"] == "task_updated"]
+    assert len(notices) == 1
+    notice = notices[0]
+    assert notice["title"] == title
+    assert notice["task_id"] == task["id"]
+    assert notice["board_id"] == board_id
+    assert notice["actor"]["id"] == str(owner_user.id)
+
+
+@pytest.mark.parametrize("change", [{"description": "Черновик"}, {"start_date": "2026-11-10"}])
+async def test_changing_the_description_or_start_date_notifies_nobody(
+    client: AsyncClient, change: dict[str, object]
+) -> None:
+    _, owner = await signed_in(client, "sasha")
+    boris, boris_headers = await signed_in(client, "boris")
+    board_id = await shared_board(client, owner, str(boris.id))
+    task = await create_task(
+        client, owner, board_id=board_id, title="Смета", assignee_ids=[str(boris.id)]
+    )
+    before = (await notification_page(client, boris_headers))["items"]
+
+    edited = await client.patch(f"tasks/{task['id']}", json={"version": 1, **change}, headers=owner)
+    assert edited.status_code == 200, edited.text
+
+    assert (await notification_page(client, boris_headers))["items"] == before
+
+
+async def test_editor_who_is_assigned_hears_nothing_of_their_own_change(
+    client: AsyncClient,
+) -> None:
+    owner_user, owner = await signed_in(client, "sasha")
+    boris, boris_headers = await signed_in(client, "boris")
+    board_id = await shared_board(client, owner, str(boris.id))
+    task = await create_task(
+        client,
+        owner,
+        board_id=board_id,
+        title="Смета",
+        assignee_ids=[str(owner_user.id), str(boris.id)],
+    )
+
+    edited = await client.patch(
+        f"tasks/{task['id']}", json={"version": 1, "title": "Смета 2"}, headers=owner
+    )
+    assert edited.status_code == 200, edited.text
+
+    assert (await notification_page(client, owner))["items"] == []
+    items = (await notification_page(client, boris_headers))["items"]
+    notices = [item for item in items if item["kind"] == "task_updated"]
+    assert [notice["title"] for notice in notices] == ["Смета 2"]
+
+
+async def test_someone_assigned_in_the_same_edit_hears_only_the_assignment(
+    client: AsyncClient,
+) -> None:
+    _, owner = await signed_in(client, "sasha")
+    boris, boris_headers = await signed_in(client, "boris")
+    board_id = await shared_board(client, owner, str(boris.id))
+    task = await create_task(client, owner, board_id=board_id, title="Смета")
+
+    edited = await client.patch(
+        f"tasks/{task['id']}",
+        json={"version": 1, "title": "Смета 2", "assignee_ids": [str(boris.id)]},
+        headers=owner,
+    )
+    assert edited.status_code == 200, edited.text
+
+    items = (await notification_page(client, boris_headers))["items"]
+    assert [item["kind"] for item in items] == ["task_assigned", "board_added"]
+    assert items[0]["title"] == "Смета 2"
+
+
+async def test_someone_unassigned_in_the_same_edit_hears_nothing_more(
+    client: AsyncClient,
+) -> None:
+    _, owner = await signed_in(client, "sasha")
+    boris, boris_headers = await signed_in(client, "boris")
+    board_id = await shared_board(client, owner, str(boris.id))
+    task = await create_task(
+        client, owner, board_id=board_id, title="Смета", assignee_ids=[str(boris.id)]
+    )
+
+    edited = await client.patch(
+        f"tasks/{task['id']}",
+        json={"version": 1, "title": "Смета 2", "assignee_ids": []},
+        headers=owner,
+    )
+    assert edited.status_code == 200, edited.text
+
+    items = (await notification_page(client, boris_headers))["items"]
+    assert [item["kind"] for item in items] == ["task_assigned", "board_added"]
+
+
+async def test_an_edit_moves_the_assignee_notifications_counter(client: AsyncClient) -> None:
+    _, owner = await signed_in(client, "sasha")
+    boris, boris_headers = await signed_in(client, "boris")
+    board_id = await shared_board(client, owner, str(boris.id))
+    task = await create_task(
+        client, owner, board_id=board_id, title="Смета", assignee_ids=[str(boris.id)]
+    )
+    before = await sync_state(client, boris_headers)
+
+    edited = await client.patch(
+        f"tasks/{task['id']}", json={"version": 1, "title": "Смета 2"}, headers=owner
+    )
+    assert edited.status_code == 200, edited.text
+
+    after = await sync_state(client, boris_headers)
+    assert after["notifications"] > before["notifications"]

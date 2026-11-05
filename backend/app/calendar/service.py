@@ -1,14 +1,15 @@
 from collections import defaultdict
 from collections.abc import Collection
+from dataclasses import asdict
 from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.calendar import models, repository, schemas
+from app.calendar import models, repository, schemas, series
 from app.calendar.busy import merge_busy
-from app.calendar.links import EventSummary
+from app.calendar.links import summary_of
 from app.core.clock import utcnow
 from app.core.errors import (
     AppError,
@@ -26,6 +27,7 @@ from app.identity.schemas import UserSummary
 from app.notifications import service as notifications
 from app.notifications import sync
 from app.notifications.models import NotificationKind
+from app.reminders import service as reminders
 from app.tasks import task_service
 
 SHARED_FIELDS = (
@@ -38,10 +40,13 @@ SHARED_FIELDS = (
     "start_date",
     "end_date",
     "timezone",
+    "recurrence_rule",
 )
-# The description and the zone change nothing that participants have planned around.
+# The description changes nothing that participants have planned around, and neither does the
+# zone of a one-off event: its moments stay. A series is counted in its zone, see update_event.
 NOTIFIED_FIELDS = frozenset(SHARED_FIELDS) - {"description", "timezone"}
-PERSONAL_FIELDS = frozenset({"category_id", "version"})
+TIME_FIELDS = frozenset(SHARED_FIELDS) - {"title", "description", "location"}
+PERSONAL_FIELDS = frozenset({"category_id", "reminder_minutes", "version"})
 PARTICIPANT_NOT_FOUND = "Пользователь не найден"
 CATEGORY_NOT_FOUND = "Категория не найдена"
 
@@ -55,6 +60,11 @@ async def _users(db: AsyncSession, user_ids: Collection[UUID]) -> dict[UUID, Use
 
 def _summary(user: User) -> UserSummary:
     return UserSummary.model_validate(user)
+
+
+def _recurrence_of(event: models.Event) -> schemas.Recurrence | None:
+    recurrence = series.parse_rule(event.recurrence_rule)
+    return None if recurrence is None else schemas.Recurrence(**asdict(recurrence))
 
 
 async def _event_out(
@@ -77,9 +87,11 @@ async def _event_out(
         start_date=event.start_date,
         end_date=event.end_date,
         timezone=event.timezone,
+        recurrence=_recurrence_of(event),
         created_by=_summary(users[event.created_by]),
         participants=[_summary(users[participant]) for participant in participant_ids],
         category_id=category_id,
+        reminder_minutes=await reminders.event_minutes(db, event.id, user_id),
         linked_tasks=await task_service.visible_tasks(db, user_id, task_ids),
         version=event.version,
         created_at=event.created_at,
@@ -109,20 +121,28 @@ async def _occurrences(
     participants: defaultdict[UUID, list[UserSummary]] = defaultdict(list)
     for event_id, user_id in pairs:
         participants[event_id].append(_summary(users[user_id]))
+    found = [
+        (series.start_moment(event, occurrence), event.id, occurrence, event, category_id)
+        for event, category_id in rows
+        for occurrence in series.occurrences_in(event, period)
+    ]
+    found.sort(key=lambda item: item[:2])
     return [
         schemas.EventOccurrence(
             event_id=event.id,
+            occurrence_start=occurrence.start,
             title=event.title,
             location=event.location,
             all_day=event.all_day,
-            start_at=event.start_at,
-            end_at=event.end_at,
-            start_date=event.start_date,
-            end_date=event.end_date,
+            start_at=occurrence.start_at,
+            end_at=occurrence.end_at,
+            start_date=occurrence.start_date,
+            end_date=occurrence.end_date,
             category_id=category_id,
             participants=participants[event.id],
+            is_recurring=event.recurrence_rule is not None,
         )
-        for event, category_id in rows
+        for _, _, occurrence, event, category_id in found
     ]
 
 
@@ -175,8 +195,12 @@ async def availability(
         mine = await repository.get_participant(db, params.exclude_event_id, principal.user_id)
         excluded = params.exclude_event_id if mine is not None else None
     busy: defaultdict[UUID, list[tuple[datetime, datetime]]] = defaultdict(list)
-    for user_id, start_at, end_at in await repository.busy_rows(db, user_ids, period, excluded):
-        busy[user_id].append((start_at, end_at))
+    for user_id, event in await repository.busy_rows(db, user_ids, period, excluded):
+        busy[user_id].extend(
+            (occurrence.start_at, occurrence.end_at)
+            for occurrence in series.occurrences_in(event, period)
+            if occurrence.start_at and occurrence.end_at
+        )
     return schemas.AvailabilityList(
         items=[
             schemas.UserAvailability(
@@ -194,11 +218,12 @@ async def availability(
 async def search(
     principal: Principal, db: AsyncSession, params: schemas.SearchParams
 ) -> schemas.SearchResults:
-    events = await repository.search_events(
-        db, principal.user_id, params.q, utcnow(), schemas.SEARCH_LIMIT
-    )
+    now = utcnow()
+    events = await repository.search_events(db, principal.user_id, params.q)
+    # Only an unfolded series knows how close it is, so neither the order nor the limit is SQL's.
+    closest = sorted(events, key=lambda event: (series.closest_distance(event, now), event.id))
     return schemas.SearchResults(
-        events=[EventSummary.model_validate(event) for event in events],
+        events=[summary_of(event, now) for event in closest[: schemas.SEARCH_LIMIT]],
         tasks=await task_service.search_tasks(principal, db, params.q, schemas.SEARCH_LIMIT),
     )
 
@@ -218,6 +243,25 @@ def _check_time(event: models.Event) -> None:
         raise field_error("start_at", "Укажите начало и конец")
     if event.end_at <= event.start_at:
         raise field_error("end_at", "Конец должен быть позже начала")
+
+
+def _rule_of(recurrence: schemas.RecurrenceInput | None) -> str | None:
+    if recurrence is None:
+        return None
+    return series.build_rule(series.Recurrence(**recurrence.model_dump()))
+
+
+def _fit_series(event: models.Event) -> None:
+    """Call after every change of time or rule, once the time itself is checked."""
+    recurrence = series.parse_rule(event.recurrence_rule)
+    if recurrence and recurrence.until and recurrence.until < series.first_day(event):
+        raise field_error("recurrence", "Серия не может закончиться раньше первого повтора")
+    if recurrence and series.occurrence_length(event) > schemas.MAX_OCCURRENCE:
+        # Every read reaches back by this length, so a mistyped year would break the calendar.
+        raise field_error(
+            "end_date" if event.all_day else "end_at", "Повтор не может длиться дольше года"
+        )
+    event.series_end_at = series.series_end(event)
 
 
 async def _require_active(db: AsyncSession, user_ids: Collection[UUID]) -> None:
@@ -301,8 +345,10 @@ async def create_event(
         start_date=body.start_date if body.all_day else None,
         end_date=body.end_date if body.all_day else None,
         timezone=timezone,
+        recurrence_rule=_rule_of(body.recurrence),
     )
     _check_time(event)
+    _fit_series(event)
     if body.id is not None:
         event.id = body.id
     db.add(event)
@@ -327,6 +373,7 @@ async def create_event(
         models.EventParticipant(event_id=event.id, user_id=user_id, added_by=principal.user_id)
         for user_id in others
     )
+    await reminders.set_event_minutes(db, event, principal.user_id, body.reminder_minutes, utcnow())
     notified = _notify(db, principal, event, others, NotificationKind.event_added)
     await _publish(db, {principal.user_id, *others}, notified)
     created = await _event_out(db, event, principal.user_id, body.category_id)
@@ -336,6 +383,8 @@ async def create_event(
 
 def _apply_fields(event: models.Event, body: schemas.EventUpdate) -> set[str]:
     values = {name: getattr(body, name) for name in SHARED_FIELDS if name in body.model_fields_set}
+    if "recurrence" in body.model_fields_set:
+        values["recurrence_rule"] = _rule_of(body.recurrence)
     # Time lives in one of the two pairs, so choosing one clears the other.
     if values.get("all_day", event.all_day):
         values |= {"start_at": None, "end_at": None}
@@ -359,7 +408,7 @@ async def update_event(
         raise not_found()
     category_id = mine.category_id
 
-    # A change of one's own category conflicts with nothing that others can do.
+    # A change of what is one's own conflicts with nothing that others can do.
     if body.model_fields_set - PERSONAL_FIELDS and event.version != body.version:
         current = await _event_out(db, event, principal.user_id, category_id)
         raise _conflict(current)
@@ -367,6 +416,10 @@ async def update_event(
     title_before = event.title
     changed = _apply_fields(event, body)
     _check_time(event)
+    now = utcnow()
+    if changed & TIME_FIELDS:
+        _fit_series(event)
+        await reminders.reschedule_event(db, event, now)
 
     current_ids = set(await repository.participant_ids(db, event.id))
     added: set[UUID] = set()
@@ -388,12 +441,18 @@ async def update_event(
     if personal:
         await _require_own_category(principal, db, body.category_id)
         mine.category_id = category_id = body.category_id
+    if body.reminder_minutes is not None and principal.user_id not in removed:
+        minutes = set(body.reminder_minutes)
+        if minutes != set(await reminders.event_minutes(db, event.id, principal.user_id)):
+            await reminders.set_event_minutes(db, event, principal.user_id, minutes, now)
+            personal = True
 
     shared_change = bool(changed or added or removed)
     if shared_change:
         event.version += 1
         notified: set[UUID] = set()
-        if changed & NOTIFIED_FIELDS:
+        moved_series = "timezone" in changed and event.recurrence_rule is not None
+        if changed & NOTIFIED_FIELDS or moved_series:
             notified |= _notify(
                 db, principal, event, current_ids - removed, NotificationKind.event_updated
             )

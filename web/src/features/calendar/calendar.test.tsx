@@ -117,6 +117,29 @@ describe("the calendar screen", () => {
     expect(panel.queryByText("В другой день")).not.toBeInTheDocument();
   });
 
+  it("marks a repeat of a series with an icon, and a one-off event without one", async () => {
+    stubApp({
+      calendarItems: [
+        makeOccurrence({ event_id: "gym", title: "Зарядка", is_recurring: true }),
+        makeOccurrence({
+          event_id: "dentist",
+          title: "Врач",
+          start_at: "2026-11-06T10:00:00Z",
+          end_at: "2026-11-06T11:00:00Z",
+        }),
+      ],
+    });
+    renderApp(DAY);
+
+    const panel = within(
+      (await screen.findByRole("heading", { name: "Пт, 6 ноября" })).parentElement!,
+    );
+    const gym = await panel.findByRole("button", { name: /Зарядка/ });
+    expect(within(gym).getByRole("img", { name: "Повторяется" })).toBeInTheDocument();
+    const dentist = panel.getByRole("button", { name: /Врач/ });
+    expect(within(dentist).queryByRole("img", { name: "Повторяется" })).not.toBeInTheDocument();
+  });
+
   it("hides a category and the task layer, and remembers it", async () => {
     stubApp({
       categories: [makeCategory({ id: "c1", name: "Работа" })],
@@ -544,6 +567,8 @@ describe("links with tasks", () => {
       all_day: false,
       start_at: "2026-11-06T16:00:00Z",
       start_date: null,
+      is_recurring: false,
+      next_occurrence_start: null,
     };
     const calls = stubApp({
       boards: [board],
@@ -597,6 +622,8 @@ describe("links with tasks", () => {
           all_day: false,
           start_at: "2026-11-06T16:00:00Z",
           start_date: null,
+          is_recurring: false,
+          next_occurrence_start: null,
         },
       ],
     };
@@ -611,6 +638,29 @@ describe("links with tasks", () => {
     await user.click(await screen.findByRole("button", { name: "Убрать связь: Ужин" }));
 
     await waitFor(() => expect(requestsTo(calls, "DELETE", url)).toHaveLength(1));
+  });
+
+  it("shows the next repeat of a linked series, not its first one", async () => {
+    const linked = {
+      ...task,
+      linked_events: [
+        {
+          id: "e1",
+          title: "Ужин",
+          all_day: false,
+          start_at: "2026-11-06T16:00:00Z",
+          start_date: null,
+          is_recurring: true,
+          next_occurrence_start: "2026-11-13T16:00:00Z",
+        },
+      ],
+    };
+    stubApp({ boards: [board], tasks: [linked] });
+    renderApp("/tasks?task=t1");
+
+    const link = await screen.findByRole("button", { name: /^Ужин/ });
+    await waitFor(() => expect(link).toHaveTextContent("Пт, 13 ноября, 19:00"));
+    expect(link).not.toHaveTextContent("6 ноября");
   });
 
   it("opens a linked task instead of the event", async () => {

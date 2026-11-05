@@ -28,7 +28,7 @@ import {
   useTask,
   useUpdateTask,
 } from "./api";
-import { formatMoment, fromLocalInput, toLocalInput } from "./dates";
+import { addDays, formatMoment, fromLocalInput, toLocalInput } from "./dates";
 import { LabelPicker } from "./LabelPicker";
 import { PRIORITIES } from "./labels";
 import { DraftChecklist, TaskChecklist } from "./TaskChecklist";
@@ -48,11 +48,13 @@ type Draft = {
   startDate: string;
   dueDate: string;
   dueTime: string;
+  reminderDate: string;
+  reminderTime: string;
   assigneeIds: string[];
   labelIds: string[];
 };
 
-type FieldErrors = { title?: string; startDate?: string; dueDate?: string };
+type FieldErrors = { title?: string; startDate?: string; dueDate?: string; reminder?: string };
 
 type Conflict = {
   version: number;
@@ -65,6 +67,7 @@ function draftOf(task: Task, timeZone: string): Draft {
   const due = task.due_at
     ? toLocalInput(task.due_at, timeZone)
     : { date: task.due_date ?? "", time: "" };
+  const reminder = toLocalInput(task.reminder_at, timeZone);
   return {
     title: task.title,
     boardId: task.board_id,
@@ -74,6 +77,8 @@ function draftOf(task: Task, timeZone: string): Draft {
     startDate: task.start_date ?? "",
     dueDate: due.date,
     dueTime: due.time,
+    reminderDate: reminder.date,
+    reminderTime: reminder.time,
     assigneeIds: task.assignees.map((user) => user.id),
     labelIds: task.labels.map((label) => label.id),
   };
@@ -87,6 +92,14 @@ function deadline(
     return { due_date: null, due_at: fromLocalInput(draft.dueDate, draft.dueTime, timeZone) };
   }
   return { due_date: draft.dueDate || null, due_at: null };
+}
+
+/** The personal reminder as an instant. Without both a day and a time there is no reminder. */
+function reminderAt(draft: Draft, timeZone: string): string | null {
+  if (draft.reminderDate && draft.reminderTime) {
+    return fromLocalInput(draft.reminderDate, draft.reminderTime, timeZone);
+  }
+  return null;
 }
 
 function sameIds(left: string[], right: string[]): boolean {
@@ -103,6 +116,10 @@ function changes(before: Draft, draft: Draft, timeZone: string): Omit<TaskUpdate
     ...(draft.startDate !== before.startDate && { start_date: draft.startDate || null }),
     ...((draft.dueDate !== before.dueDate || draft.dueTime !== before.dueTime) &&
       deadline(draft, timeZone)),
+    ...((draft.reminderDate !== before.reminderDate ||
+      draft.reminderTime !== before.reminderTime) && {
+      reminder_at: reminderAt(draft, timeZone),
+    }),
     ...(!sameIds(draft.assigneeIds, before.assigneeIds) && { assignee_ids: draft.assigneeIds }),
     ...(!sameIds(draft.labelIds, before.labelIds) && { label_ids: draft.labelIds }),
   };
@@ -112,6 +129,9 @@ function validate(draft: Draft): FieldErrors {
   const errors: FieldErrors = {};
   if (!draft.title.trim()) errors.title = "Введите название";
   if (draft.dueTime && !draft.dueDate) errors.dueDate = "Укажите дату";
+  if (Boolean(draft.reminderDate) !== Boolean(draft.reminderTime)) {
+    errors.reminder = "Укажите дату и время";
+  }
   if (draft.startDate && draft.dueDate && draft.startDate > draft.dueDate) {
     errors.startDate = "Не позже дедлайна";
   }
@@ -128,6 +148,7 @@ function createBody(draft: Draft, checklist: string[], timeZone: string, id: str
     priority: Number(draft.priority),
     start_date: draft.startDate || null,
     ...deadline(draft, timeZone),
+    reminder_at: reminderAt(draft, timeZone),
     assignee_ids: draft.assigneeIds,
     label_ids: draft.labelIds,
     checklist,
@@ -415,6 +436,52 @@ function TaskForm({ task, initial, timeZone, removed, onClose, onReload }: TaskF
                 onChange={(event) => set({ dueTime: event.target.value })}
               />
             </div>
+            <div className={styles.reminder}>
+              <div className={styles.row}>
+                <TextField
+                  label="Напоминание"
+                  type="date"
+                  value={draft.reminderDate}
+                  error={errors.reminder}
+                  disabled={readOnly}
+                  onChange={(event) => set({ reminderDate: event.target.value })}
+                />
+                <TextField
+                  label="Время напоминания"
+                  type="time"
+                  value={draft.reminderTime}
+                  disabled={readOnly}
+                  onChange={(event) => set({ reminderTime: event.target.value })}
+                />
+              </div>
+              <div className={styles.quick}>
+                <Button
+                  variant="ghost"
+                  disabled={readOnly || !draft.dueDate}
+                  onClick={() => set({ reminderDate: draft.dueDate, reminderTime: "09:00" })}
+                >
+                  В день срока в 09:00
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={readOnly || !draft.dueDate}
+                  onClick={() =>
+                    set({ reminderDate: addDays(draft.dueDate, -1), reminderTime: "09:00" })
+                  }
+                >
+                  За день в 09:00
+                </Button>
+                {(draft.reminderDate !== "" || draft.reminderTime !== "") && (
+                  <Button
+                    variant="ghost"
+                    disabled={readOnly}
+                    onClick={() => set({ reminderDate: "", reminderTime: "" })}
+                  >
+                    Без напоминания
+                  </Button>
+                )}
+              </div>
+            </div>
             {members && members.length > 0 && (
               <fieldset className={styles.assignees} disabled={readOnly}>
                 <legend className={styles.legend}>Исполнители</legend>
@@ -533,6 +600,8 @@ function NewTask({ boardId, onClose }: { boardId?: string; onClose: () => void }
         startDate: "",
         dueDate: "",
         dueTime: "",
+        reminderDate: "",
+        reminderTime: "",
         assigneeIds: [],
         labelIds: [],
       }}

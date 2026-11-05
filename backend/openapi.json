@@ -6422,6 +6422,16 @@
             "type": "string",
             "title": "Timezone"
           },
+          "recurrence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Recurrence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_by": {
             "$ref": "#/components/schemas/UserSummary"
           },
@@ -6443,6 +6453,13 @@
               }
             ],
             "title": "Category Id"
+          },
+          "reminder_minutes": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Reminder Minutes"
           },
           "linked_tasks": {
             "items": {
@@ -6478,9 +6495,11 @@
           "start_date",
           "end_date",
           "timezone",
+          "recurrence",
           "created_by",
           "participants",
           "category_id",
+          "reminder_minutes",
           "linked_tasks",
           "version",
           "created_at",
@@ -6615,6 +6634,26 @@
               }
             ],
             "title": "Category Id"
+          },
+          "recurrence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecurrenceInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reminder_minutes": {
+            "items": {
+              "type": "integer",
+              "maximum": 43200.0,
+              "minimum": 0.0
+            },
+            "type": "array",
+            "maxItems": 5,
+            "title": "Reminder Minutes"
           }
         },
         "additionalProperties": false,
@@ -6651,6 +6690,19 @@
             "type": "string",
             "format": "uuid",
             "title": "Event Id"
+          },
+          "occurrence_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "string",
+                "format": "date"
+              }
+            ],
+            "title": "Occurrence Start"
           },
           "title": {
             "type": "string",
@@ -6737,11 +6789,16 @@
             },
             "type": "array",
             "title": "Participants"
+          },
+          "is_recurring": {
+            "type": "boolean",
+            "title": "Is Recurring"
           }
         },
         "type": "object",
         "required": [
           "event_id",
+          "occurrence_start",
           "title",
           "location",
           "all_day",
@@ -6750,7 +6807,8 @@
           "start_date",
           "end_date",
           "category_id",
-          "participants"
+          "participants",
+          "is_recurring"
         ],
         "title": "EventOccurrence"
       },
@@ -6808,6 +6866,26 @@
               }
             ],
             "title": "Start Date"
+          },
+          "is_recurring": {
+            "type": "boolean",
+            "title": "Is Recurring"
+          },
+          "next_occurrence_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Occurrence Start"
           }
         },
         "type": "object",
@@ -6816,7 +6894,9 @@
           "title",
           "all_day",
           "start_at",
-          "start_date"
+          "start_date",
+          "is_recurring",
+          "next_occurrence_start"
         ],
         "title": "EventSummary"
       },
@@ -6959,6 +7039,33 @@
               }
             ],
             "title": "Category Id"
+          },
+          "recurrence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecurrenceInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reminder_minutes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer",
+                  "maximum": 43200.0,
+                  "minimum": 0.0
+                },
+                "type": "array",
+                "maxItems": 5
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reminder Minutes"
           }
         },
         "additionalProperties": false,
@@ -6967,7 +7074,7 @@
           "version"
         ],
         "title": "EventUpdate",
-        "description": "`category_id` is personal: it belongs to whoever sends it and `version` doesn't cover it."
+        "description": "`category_id` and `reminder_minutes` are personal: they belong to whoever sends them and\n`version` doesn't cover them."
       },
       "Health": {
         "properties": {
@@ -7305,6 +7412,94 @@
         ],
         "title": "NotificationPage"
       },
+      "Recurrence": {
+        "properties": {
+          "freq": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly"
+            ],
+            "title": "Freq"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "freq",
+          "until",
+          "count"
+        ],
+        "title": "Recurrence"
+      },
+      "RecurrenceInput": {
+        "properties": {
+          "freq": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly"
+            ],
+            "title": "Freq"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "freq"
+        ],
+        "title": "RecurrenceInput",
+        "description": "Both limits empty mean a series without an end. `until` is the last day it may fall on,\nin the zone of the event. There is no way to pass a rule: the server builds it from this."
+      },
       "SearchResults": {
         "properties": {
           "events": {
@@ -7494,6 +7689,18 @@
             "type": "array",
             "title": "Linked Events"
           },
+          "reminder_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reminder At"
+          },
           "created_by": {
             "$ref": "#/components/schemas/UserSummary"
           },
@@ -7529,6 +7736,7 @@
           "description",
           "checklist",
           "linked_events",
+          "reminder_at",
           "created_by",
           "version",
           "created_at"
@@ -7747,6 +7955,18 @@
               }
             ],
             "title": "Due At"
+          },
+          "reminder_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reminder At"
           },
           "id": {
             "anyOf": [
@@ -8159,6 +8379,18 @@
             ],
             "title": "Due At"
           },
+          "reminder_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reminder At"
+          },
           "version": {
             "type": "integer",
             "title": "Version"
@@ -8237,7 +8469,8 @@
         "required": [
           "version"
         ],
-        "title": "TaskUpdate"
+        "title": "TaskUpdate",
+        "description": "`reminder_at` is personal: it belongs to whoever sends it and `version` doesn't cover it."
       },
       "UpdateProfileRequest": {
         "properties": {

@@ -5,19 +5,13 @@ import type { EventSummary, Task } from "../../api/client";
 import { Button, IconButton, TextField, useToast } from "../../ui";
 import { useCurrentUser } from "../auth/session";
 import { failureMessage } from "../tasks/api";
-import { clockTime, deadlineDay, localDate } from "../tasks/dates";
+import { deadlineDay } from "../tasks/dates";
 import { useLinkEvent, useSearch, useUnlinkEvent } from "./api";
 import { useEventParam } from "./eventLinks";
-import { dayTitle } from "./period";
+import { eventWhen } from "./items";
 import styles from "./TaskEventLinks.module.css";
 
 const SEARCH_DELAY_MS = 250;
-
-function whenText(event: EventSummary, timeZone: string): string {
-  if (event.start_at === null) return dayTitle(event.start_date ?? "");
-  const day = dayTitle(localDate(event.start_at, timeZone));
-  return `${day}, ${clockTime(event.start_at, timeZone)}`;
-}
 
 function EventPicker({
   linked,
@@ -59,7 +53,7 @@ function EventPicker({
                 }}
               >
                 <span className={styles.title}>{event.title}</span>
-                <span className={styles.when}>{whenText(event, timeZone)}</span>
+                <span className={styles.when}>{eventWhen(event, timeZone)}</span>
               </button>
             </li>
           ))}
@@ -89,9 +83,13 @@ export function TaskEventLinks({ task, readOnly }: TaskEventLinksProps) {
         <ul className={styles.list}>
           {task.linked_events.map((event) => (
             <li key={event.id} className={styles.row}>
-              <button type="button" className={styles.found} onClick={() => open(event.id)}>
+              <button
+                type="button"
+                className={styles.found}
+                onClick={() => open(event.id, event.next_occurrence_start ?? undefined)}
+              >
                 <span className={styles.title}>{event.title}</span>
-                <span className={styles.when}>{whenText(event, timeZone)}</span>
+                <span className={styles.when}>{eventWhen(event, timeZone)}</span>
               </button>
               {!readOnly && (
                 <IconButton

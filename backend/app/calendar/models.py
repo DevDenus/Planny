@@ -39,6 +39,7 @@ class Event(Timestamps, Base):
             " AND end_at > start_at AND start_date IS NULL AND end_date IS NULL)",
             name="time_shape",
         ),
+        Index("ix_event_series_end_at", "series_end_at"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=new_id)
@@ -52,6 +53,8 @@ class Event(Timestamps, Base):
     start_date: Mapped[date | None]
     end_date: Mapped[date | None]
     timezone: Mapped[str] = mapped_column(Text)
+    recurrence_rule: Mapped[str | None] = mapped_column(Text)
+    series_end_at: Mapped[datetime | None]
     version: Mapped[int] = mapped_column(default=1)
     deleted_at: Mapped[datetime | None]
 

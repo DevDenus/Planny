@@ -168,6 +168,7 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     description: null,
     checklist,
     linked_events: [],
+    reminder_at: null,
     created_by: USER_SUMMARY,
     version: 1,
     created_at: now,
@@ -241,6 +242,7 @@ export function makeOccurrence(overrides: Partial<EventOccurrence> = {}): EventO
   return {
     type: "event",
     event_id: "e1",
+    occurrence_start: "2026-11-06T16:00:00Z",
     title: "Ужин вдвоём",
     location: null,
     all_day: false,
@@ -250,6 +252,7 @@ export function makeOccurrence(overrides: Partial<EventOccurrence> = {}): EventO
     end_date: null,
     category_id: null,
     participants: [USER_SUMMARY],
+    is_recurring: false,
     ...overrides,
   };
 }
@@ -282,9 +285,11 @@ export function makeEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent
     start_date: null,
     end_date: null,
     timezone: "Europe/Moscow",
+    recurrence: null,
     created_by: USER_SUMMARY,
     participants: [USER_SUMMARY],
     category_id: null,
+    reminder_minutes: [],
     linked_tasks: [],
     version: 1,
     created_at: "2026-11-01T10:00:00Z",

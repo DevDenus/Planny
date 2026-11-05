@@ -4,6 +4,7 @@ import {
   LogOut,
   MapPin,
   Pencil,
+  Repeat,
   Square,
   Text,
   Trash2,
@@ -17,21 +18,41 @@ import { failureMessage } from "../tasks/api";
 import { useCategories, useDeleteEvent, useLeaveEvent, useUpdateEvent } from "./api";
 import { useEventParam } from "./eventLinks";
 import styles from "./EventView.module.css";
-import { eventDays, eventTime } from "./items";
+import { eventDays, eventTime, type TimedEvent } from "./items";
 import { dayTitle } from "./period";
+import {
+  REMINDER_OPTIONS,
+  occurrenceOf,
+  recurrenceText,
+  reminderMinutes,
+  reminderValue,
+} from "./recurrence";
 
 const NO_CATEGORY = "";
 
 /** The day goes with the time, unless the time already names the days. */
-function whenText(event: CalendarEvent, timeZone: string): string {
+function whenText(event: TimedEvent, timeZone: string): string {
   const { first, last } = eventDays(event, timeZone);
   const time = eventTime(event, timeZone);
   return first === last ? `${dayTitle(first)} · ${time}` : time;
 }
 
-export type EventViewProps = { event: CalendarEvent; timeZone: string; onClose: () => void };
+function deleteWarning(event: CalendarEvent, shared: boolean): string {
+  if (event.recurrence) {
+    return shared ? "Вся серия удалится у всех участников" : "Будет удалена вся серия";
+  }
+  return shared ? "Событие удалится у всех участников" : event.title;
+}
 
-export function EventView({ event, timeZone, onClose }: EventViewProps) {
+export type EventViewProps = {
+  event: CalendarEvent;
+  /** Which repeat of a series was opened. Without it the view shows the first one. */
+  occurrence?: string;
+  timeZone: string;
+  onClose: () => void;
+};
+
+export function EventView({ event, occurrence, timeZone, onClose }: EventViewProps) {
   const toast = useToast();
   const { edit, switchToTask } = useEventParam();
   const { data: categories } = useCategories();
@@ -79,8 +100,14 @@ export function EventView({ event, timeZone, onClose }: EventViewProps) {
         {failure && <Banner tone="error">{failure}</Banner>}
         <p className={styles.row}>
           <Clock size={18} aria-hidden="true" />
-          {whenText(event, timeZone)}
+          {whenText(occurrenceOf(event, occurrence), timeZone)}
         </p>
+        {event.recurrence && (
+          <p className={styles.row}>
+            <Repeat size={18} aria-hidden="true" />
+            {recurrenceText(event.recurrence)}
+          </p>
+        )}
         {event.location && (
           <p className={styles.row}>
             <MapPin size={18} aria-hidden="true" />
@@ -117,6 +144,17 @@ export function EventView({ event, timeZone, onClose }: EventViewProps) {
           onChange={(change) =>
             update.mutate(
               { version: event.version, category_id: change.target.value || null },
+              { onError: (error) => toast.show(failureMessage(error), "error") },
+            )
+          }
+        />
+        <SelectField
+          label="Напоминание"
+          value={reminderValue(event.reminder_minutes)}
+          options={REMINDER_OPTIONS}
+          onChange={(change) =>
+            update.mutate(
+              { version: event.version, reminder_minutes: reminderMinutes(change.target.value) },
               { onError: (error) => toast.show(failureMessage(error), "error") },
             )
           }
@@ -173,7 +211,7 @@ export function EventView({ event, timeZone, onClose }: EventViewProps) {
             </>
           }
         >
-          <p>{shared ? "Событие удалится у всех участников" : event.title}</p>
+          <p>{deleteWarning(event, shared)}</p>
         </Dialog>
       )}
     </Dialog>

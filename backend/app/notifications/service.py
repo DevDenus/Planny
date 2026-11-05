@@ -51,6 +51,42 @@ def notify(
     return recipients
 
 
+async def notify_once(
+    db: AsyncSession,
+    user_id: UUID,
+    kind: NotificationKind,
+    *,
+    key: str,
+    title: str,
+    event_id: UUID | None = None,
+    task_id: UUID | None = None,
+    board_id: UUID | None = None,
+    data: dict[str, Any] | None = None,
+) -> bool:
+    """For the worker: nobody acted, so there is no actor, and the same key never writes twice.
+    True if it was written."""
+    return await repository.add_once(
+        db,
+        user_id=user_id,
+        kind=kind,
+        title=title,
+        event_id=event_id,
+        task_id=task_id,
+        board_id=board_id,
+        data=data or {},
+        dedupe_key=key,
+    )
+
+
+async def retire_reminders(
+    db: AsyncSession, user_id: UUID, prefix: str, keeping: str, now: datetime
+) -> None:
+    """A reminder of a series shows only its latest notification in the unread: a daily one would
+    pile up. Two reminders of one series stay apart: "a day before" of tomorrow's occurrence and
+    "at the start" of today's fire together, and neither makes the other old news."""
+    await repository.read_reminders(db, user_id, prefix, keeping, now)
+
+
 async def list_notifications(
     principal: Principal,
     db: AsyncSession,

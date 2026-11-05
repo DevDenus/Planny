@@ -543,19 +543,3 @@ async def test_an_id_taken_by_another_user_is_a_conflict(client: AsyncClient) ->
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "id_conflict"
-
-
-async def test_series_and_reminders_are_not_accepted_yet(client: AsyncClient) -> None:
-    _, headers = await signed_in(client, "sasha")
-    for extra in ({"recurrence": {"freq": "daily"}}, {"reminder_minutes": [60]}):
-        response = await client.post(
-            "events",
-            json={
-                "title": "Событие",
-                "start_at": "2026-11-06T16:00:00Z",
-                "end_at": "2026-11-06T17:00:00Z",
-                **extra,
-            },
-            headers=headers,
-        )
-        assert response.status_code == 422, extra
