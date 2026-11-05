@@ -5,10 +5,11 @@ from typing import Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import Select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.calendar.links import linked_events
+from app.calendar.links import events_of, linked_events
 from app.core.clock import utcnow
 from app.core.errors import AppError, field_error, id_conflict, not_found, version_conflict
 from app.core.ordering import key_after_row, key_between
@@ -20,7 +21,7 @@ from app.core.pagination import (
     parse_moment,
 )
 from app.core.period import Period
-from app.core.principal import Principal
+from app.core.principal import Principal, Scope
 from app.identity import service as identity
 from app.identity.schemas import UserSummary
 from app.notifications import service as notifications
@@ -92,11 +93,17 @@ async def _task_out(
     summary = (await _summaries(db, [(task, board_name)]))[0]
     checklist = await repository.checklist_of(db, task.id)
     author = (await identity.users_by_id(db, [task.created_by]))[task.created_by]
+    # An event is behind its own scope, even when it hangs off a task the key may read.
+    events = (
+        await linked_events(db, principal.user_id, task.id)
+        if principal.allows(Scope.events_read)
+        else []
+    )
     return schemas.Task(
         **summary.model_dump(),
         description=task.description,
         checklist=[schemas.ChecklistItem.model_validate(item) for item in checklist],
-        linked_events=await linked_events(db, principal.user_id, task.id),
+        linked_events=events,
         reminder_at=await reminders.task_remind_at(db, task.id, principal.user_id),
         created_by=UserSummary.model_validate(author),
         version=task.version,
@@ -422,11 +429,16 @@ def _apply_fields(task: models.Task, body: schemas.TaskUpdate) -> list[dict[str,
     return changes
 
 
+def visible_event_links(principal: Principal) -> Select[UUID] | None:
+    """The events whose links the history may show to this caller."""
+    return events_of(principal.user_id) if principal.allows(Scope.events_read) else None
+
+
 async def _version_conflict(
     principal: Principal, db: AsyncSession, task: models.Task, board_name: str
 ) -> AppError:
     current = await _task_out(principal, db, task, board_name)
-    activity = await repository.last_activity(db, task.id)
+    activity = await repository.last_activity(db, task.id, visible_event_links(principal))
     last_change = None
     if activity is not None:
         actor = (await identity.users_by_id(db, [activity.actor_id]))[activity.actor_id]

@@ -140,6 +140,62 @@ async def test_a_member_of_the_board_outside_the_event_does_not_see_the_link(
     assert "Секретный ужин" not in response.text
 
 
+async def test_a_conflict_names_the_author_of_a_link_only_to_those_who_see_it(
+    client: AsyncClient,
+) -> None:
+    sasha, owner = await signed_in(client, "sasha")
+    pasha, pasha_headers = await signed_in(client, "pasha")
+    zhenya, zhenya_headers = await signed_in(client, "zhenya")
+    task = await shared_task(client, owner, pasha.id)
+    await add_member(client, owner, task["board_id"], zhenya.id)
+    url = f"tasks/{task['id']}"
+    edited = await client.patch(url, json={"title": "Букет", "version": 1}, headers=owner)
+    assert edited.status_code == 200, edited.text
+    event = await create_event(client, pasha_headers, title="Сюрприз")
+    assert await link(client, pasha_headers, task["id"], event["id"]) == 204
+
+    async def last_author(headers: dict[str, str]) -> str:
+        stale = await client.patch(url, json={"title": "Иное", "version": 1}, headers=headers)
+        assert stale.status_code == 409
+        author: str = stale.json()["error"]["details"]["last_change"]["actor"]["id"]
+        return author
+
+    assert await last_author(pasha_headers) == str(pasha.id)
+    assert await last_author(zhenya_headers) == str(sasha.id)
+
+
+async def test_history_pages_hold_only_what_the_reader_sees(client: AsyncClient) -> None:
+    _, owner = await signed_in(client, "owner")
+    member, member_headers = await signed_in(client, "member")
+    task = await shared_task(client, owner, member.id)
+    url = f"tasks/{task['id']}"
+    event = await create_event(client, owner)
+    assert await link(client, owner, task["id"], event["id"]) == 204
+    edited = await client.patch(url, json={"title": "Букет", "version": 1}, headers=owner)
+    assert edited.status_code == 200, edited.text
+    unlinked = await client.delete(f"{url}/event-links/{event['id']}", headers=owner)
+    assert unlinked.status_code == 204
+
+    kinds: list[str] = []
+    params: dict[str, Any] = {"limit": 1}
+    while True:
+        response = await client.get(f"{url}/activity", params=params, headers=member_headers)
+        page = response.json()
+        assert len(page["items"]) == 1, page
+        kinds.append(page["items"][0]["kind"])
+        if page["next_cursor"] is None:
+            break
+        params["cursor"] = page["next_cursor"]
+
+    assert kinds == ["updated", "created"]
+    assert await activity_kinds(client, owner, task["id"]) == [
+        "event_unlinked",
+        "updated",
+        "event_linked",
+        "created",
+    ]
+
+
 async def test_a_participant_outside_the_board_does_not_see_the_task(client: AsyncClient) -> None:
     _, owner = await signed_in(client, "owner")
     guest, guest_headers = await signed_in(client, "guest")

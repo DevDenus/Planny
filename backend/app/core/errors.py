@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from http import HTTPStatus
 from typing import Any
 
@@ -53,6 +54,17 @@ def password_change_required() -> AppError:
         HTTPStatus.FORBIDDEN,
         "password_change_required",
         "Нужно сменить одноразовый пароль",
+    )
+
+
+def insufficient_scope(required: Iterable[str] = ()) -> AppError:
+    """Without `required` the route is closed to keys, whatever scopes they hold."""
+    names = sorted(required)
+    return AppError(
+        HTTPStatus.FORBIDDEN,
+        "insufficient_scope",
+        "Ключу не хватает прав",
+        {"required": names} if names else None,
     )
 
 

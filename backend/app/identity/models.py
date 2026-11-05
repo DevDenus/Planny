@@ -4,7 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import BigInteger, CheckConstraint, Enum, ForeignKey, Index, Text, func
-from sqlalchemy.dialects.postgresql import INET, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -45,6 +45,22 @@ class UserSession(Base):
     user_agent: Mapped[str | None] = mapped_column(Text)
     last_seen_at: Mapped[datetime]
     expires_at: Mapped[datetime]
+    revoked_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class ApiKey(Base):
+    __tablename__ = "api_key"
+    __table_args__ = (Index("ix_api_key_user_id", "user_id"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_id)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("app_user.id"))
+    name: Mapped[str] = mapped_column(Text)
+    prefix: Mapped[str] = mapped_column(Text)
+    key_hash: Mapped[str] = mapped_column(Text, unique=True)
+    scopes: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    expires_at: Mapped[datetime | None]
+    last_used_at: Mapped[datetime | None]
     revoked_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 

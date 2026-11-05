@@ -3,11 +3,11 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.identity.models import AuditLog, LoginAttempt, User, UserSession, UserStatus
+from app.identity.models import ApiKey, AuditLog, LoginAttempt, User, UserSession, UserStatus
 
 
 async def get_user(db: AsyncSession, user_id: UUID) -> User | None:
@@ -91,6 +91,48 @@ async def revoke_session(db: AsyncSession, session_id: UUID, now: datetime) -> N
     await db.execute(update(UserSession).where(UserSession.id == session_id).values(revoked_at=now))
 
 
+async def find_active_api_key(
+    db: AsyncSession, prefix: str, key_hash: str, now: datetime
+) -> ApiKey | None:
+    return await db.scalar(
+        select(ApiKey)
+        .join(User, User.id == ApiKey.user_id)
+        .where(
+            ApiKey.key_hash == key_hash,
+            ApiKey.prefix == prefix,
+            ApiKey.revoked_at.is_(None),
+            or_(ApiKey.expires_at.is_(None), ApiKey.expires_at > now),
+            User.status == UserStatus.active,
+        )
+    )
+
+
+async def lock_api_key(db: AsyncSession, key_id: UUID) -> ApiKey | None:
+    return await db.get(ApiKey, key_id, with_for_update=True)
+
+
+async def list_api_keys(
+    db: AsyncSession, *, user_id: UUID | None = None
+) -> Sequence[tuple[ApiKey, str]]:
+    """Every key with the login of its owner, the revoked ones as well."""
+    query = (
+        select(ApiKey, User.login)
+        .join(User, User.id == ApiKey.user_id)
+        .order_by(User.login, ApiKey.created_at, ApiKey.id)
+    )
+    if user_id is not None:
+        query = query.where(ApiKey.user_id == user_id)
+    return [(row[0], row[1]) for row in await db.execute(query)]
+
+
+async def revoke_api_keys(db: AsyncSession, user_id: UUID, now: datetime) -> None:
+    await db.execute(
+        update(ApiKey)
+        .where(ApiKey.user_id == user_id, ApiKey.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+
+
 async def get_login_attempt(db: AsyncSession, login: str, ip: str) -> LoginAttempt | None:
     return await db.get(LoginAttempt, (login, ip))
 
@@ -122,13 +164,14 @@ def add_audit_record(
     actor: str,
     action: str,
     target_id: UUID | None = None,
+    target_type: str = "user",
     details: dict[str, Any] | None = None,
 ) -> None:
     db.add(
         AuditLog(
             actor=actor,
             action=action,
-            target_type="user" if target_id else None,
+            target_type=target_type if target_id else None,
             target_id=target_id,
             details=details or {},
         )

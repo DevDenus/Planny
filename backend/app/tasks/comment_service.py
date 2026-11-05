@@ -4,7 +4,6 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.calendar.links import participating
 from app.core.clock import utcnow
 from app.core.errors import forbidden, id_conflict, not_found
 from app.core.pagination import (
@@ -20,9 +19,7 @@ from app.identity.schemas import UserSummary
 from app.notifications import service as notifications
 from app.notifications.models import NotificationKind
 from app.tasks import board_service, models, repository, schemas, task_service
-from app.tasks.models import ActivityKind, BoardRole
-
-EVENT_LINK_KINDS = frozenset({ActivityKind.event_linked, ActivityKind.event_unlinked})
+from app.tasks.models import BoardRole
 
 
 async def _comments_out(
@@ -157,12 +154,17 @@ async def list_activity(
 ) -> schemas.TaskActivityPage:
     await task_service.readable(principal, db, task_id)
     before = _parse_activity_cursor(params.cursor) if params.cursor else None
-    rows = await repository.list_activity(db, task_id, limit=params.limit + 1, before=before)
+    # An event is private: a member of the board who isn't in it doesn't learn of the link.
+    # A key that can't read events doesn't either, because the record holds the event's title.
+    rows = await repository.list_activity(
+        db,
+        task_id,
+        task_service.visible_event_links(principal),
+        limit=params.limit + 1,
+        before=before,
+    )
     page = rows[: params.limit]
     users = await identity.users_by_id(db, {row.actor_id for row in page})
-    # An event is private: a member of the board who isn't in it doesn't learn of the link.
-    linked = {row.data["event_id"] for row in page if row.kind in EVENT_LINK_KINDS}
-    reachable = await participating(db, principal.user_id, {UUID(item) for item in linked})
     return schemas.TaskActivityPage(
         items=[
             schemas.TaskActivity(
@@ -173,7 +175,6 @@ async def list_activity(
                 created_at=row.created_at,
             )
             for row in page
-            if row.kind not in EVENT_LINK_KINDS or UUID(row.data["event_id"]) in reachable
         ],
         next_cursor=encode_cursor([page[-1].id]) if len(rows) > params.limit else None,
     )

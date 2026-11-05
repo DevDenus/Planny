@@ -45,6 +45,7 @@ from app.tasks.models import (
 from app.tasks.schemas import TaskScope, TaskSort, TaskStatus
 
 LATEST_ZONE_OFFSET = timedelta(hours=14)
+EVENT_LINK_KINDS = (ActivityKind.event_linked, ActivityKind.event_unlinked)
 
 # Row locks here use FOR NO KEY UPDATE (key_share=True): the foreign keys of activity rows and
 # assignees take FOR KEY SHARE on the task, and a plain FOR UPDATE would turn that into a
@@ -567,21 +568,37 @@ async def list_comments(
 # History
 
 
-async def list_activity(
-    db: AsyncSession, task_id: UUID, *, limit: int, before: int | None
-) -> Sequence[TaskActivity]:
+def _visible_activity(task_id: UUID, visible_events: Select[UUID] | None) -> Select[TaskActivity]:
+    """A record of a link names a private event, so it exists only for those who may see that
+    event. `None` hides all of them. Filtered in the query, so that a page, its cursor and the
+    last change are all built from what the reader sees."""
     query = select(TaskActivity).where(TaskActivity.task_id == task_id)
+    is_link = TaskActivity.kind.in_(EVENT_LINK_KINDS)
+    if visible_events is None:
+        return query.where(~is_link)
+    event_id = TaskActivity.data["event_id"].astext.cast(Uuid)
+    return query.where(or_(~is_link, event_id.in_(visible_events)))
+
+
+async def list_activity(
+    db: AsyncSession,
+    task_id: UUID,
+    visible_events: Select[UUID] | None,
+    *,
+    limit: int,
+    before: int | None,
+) -> Sequence[TaskActivity]:
+    query = _visible_activity(task_id, visible_events)
     if before is not None:
         query = query.where(TaskActivity.id < before)
     return (await db.scalars(query.order_by(TaskActivity.id.desc()).limit(limit))).all()
 
 
-async def last_activity(db: AsyncSession, task_id: UUID) -> TaskActivity | None:
+async def last_activity(
+    db: AsyncSession, task_id: UUID, visible_events: Select[UUID] | None
+) -> TaskActivity | None:
     return await db.scalar(
-        select(TaskActivity)
-        .where(TaskActivity.task_id == task_id)
-        .order_by(TaskActivity.id.desc())
-        .limit(1)
+        _visible_activity(task_id, visible_events).order_by(TaskActivity.id.desc()).limit(1)
     )
 
 

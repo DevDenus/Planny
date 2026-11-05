@@ -16,7 +16,7 @@ from app.core.ids import new_id
 from app.core.principal import Operator, Principal
 from app.identity import passwords, repository
 from app.identity.models import User, UserSession, UserStatus
-from app.identity.tokens import hash_token, new_session_token
+from app.identity.tokens import ApiKeyToken, hash_token, new_session_token, parse_api_key
 from app.notifications import sync
 from app.tasks import provisioning
 
@@ -24,9 +24,9 @@ AVATAR_COLORS = ("teal", "violet", "blue", "orange", "pink", "green", "yellow", 
 LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,31}$")
 USER_AGENT_MAX_LENGTH = 256
 
-# last_seen_at and expires_at are written at most once a minute, otherwise polling
-# GET /sync would turn into a constant stream of writes.
-SESSION_TOUCH_INTERVAL = timedelta(minutes=1)
+# Usage is written at most once a minute, otherwise polling GET /sync would turn into a
+# constant stream of writes.
+TOUCH_INTERVAL = timedelta(minutes=1)
 
 FREE_LOGIN_FAILURES = 4
 LOGIN_PAUSE_MAX_DOUBLINGS = 6
@@ -103,23 +103,44 @@ async def _register_login_failure(db: AsyncSession, login: str, ip: str, now: da
 
 async def authenticate(db: AsyncSession, token: str) -> Principal:
     now = utcnow()
+    api_key = parse_api_key(token)
+    if api_key is not None:
+        return await _authenticate_key(db, api_key, now)
     found = await repository.find_active_session(db, hash_token(token), now)
     if found is None:
         raise unauthorized()
     session, user = found
-    if now - session.last_seen_at >= SESSION_TOUCH_INTERVAL:
+    if now - session.last_seen_at >= TOUCH_INTERVAL:
         session.last_seen_at = now
         session.expires_at = now + _session_ttl()
         await db.commit()
     return Principal(
         user_id=user.id,
-        session_id=session.id,
+        credential_id=session.id,
         must_change_password=user.must_change_password,
     )
 
 
+async def _authenticate_key(db: AsyncSession, token: ApiKeyToken, now: datetime) -> Principal:
+    key = await repository.find_active_api_key(db, token.prefix, hash_token(token.secret), now)
+    if key is None:
+        raise unauthorized()
+    if key.last_used_at is None or now - key.last_used_at >= TOUCH_INTERVAL:
+        key.last_used_at = now
+        await db.commit()
+    return Principal(
+        user_id=key.user_id,
+        credential_id=key.id,
+        # The one-time password stops a person at the site. A key comes from the operator and
+        # doesn't depend on the password, so its reset doesn't take the integration down.
+        must_change_password=False,
+        kind="api_key",
+        scopes=frozenset(key.scopes),
+    )
+
+
 async def logout(principal: Principal, db: AsyncSession) -> None:
-    await repository.revoke_session(db, principal.session_id, utcnow())
+    await repository.revoke_session(db, principal.credential_id, utcnow())
     await db.commit()
 
 
@@ -146,7 +167,7 @@ async def change_password(
         raise unauthorized()
     user.password_hash = new_hash
     user.must_change_password = False
-    await repository.revoke_sessions(db, user.id, utcnow(), keep=principal.session_id)
+    await repository.revoke_sessions(db, user.id, utcnow(), keep=principal.credential_id)
     await db.commit()
 
 
@@ -249,15 +270,17 @@ async def list_users(operator: Operator, db: AsyncSession) -> Sequence[User]:
 
 
 async def block_user(operator: Operator, db: AsyncSession, login: str) -> None:
-    user = await _lock_user_by_login(db, login)
+    user = await lock_user_by_login(db, login)
+    now = utcnow()
     user.status = UserStatus.blocked
-    await repository.revoke_sessions(db, user.id, utcnow())
+    await repository.revoke_sessions(db, user.id, now)
+    await repository.revoke_api_keys(db, user.id, now)
     repository.add_audit_record(db, actor=operator.actor, action="user.block", target_id=user.id)
     await db.commit()
 
 
 async def unblock_user(operator: Operator, db: AsyncSession, login: str) -> None:
-    user = await _lock_user_by_login(db, login)
+    user = await lock_user_by_login(db, login)
     user.status = UserStatus.active
     repository.add_audit_record(db, actor=operator.actor, action="user.unblock", target_id=user.id)
     await db.commit()
@@ -266,7 +289,7 @@ async def unblock_user(operator: Operator, db: AsyncSession, login: str) -> None
 async def reset_password(operator: Operator, db: AsyncSession, login: str) -> str:
     one_time_password = passwords.generate_one_time_password()
     password_hash = await passwords.hash_password(one_time_password)
-    user = await _lock_user_by_login(db, login)
+    user = await lock_user_by_login(db, login)
     user.password_hash = password_hash
     user.must_change_password = True
     await repository.revoke_sessions(db, user.id, utcnow())
@@ -284,7 +307,7 @@ async def _current_user(principal: Principal, db: AsyncSession) -> User:
     return user
 
 
-async def _lock_user_by_login(db: AsyncSession, login: str) -> User:
+async def lock_user_by_login(db: AsyncSession, login: str) -> User:
     user = await repository.lock_user_by_login(db, login.strip().lower())
     if user is None:
         raise not_found("Пользователь не найден")
