@@ -2,11 +2,11 @@ import asyncio
 import logging
 import signal
 
-from sqlalchemy import text
-
+from app.core.clock import utcnow
 from app.core.config import get_settings
 from app.core.db import get_engine, get_sessionmaker
 from app.core.logging import configure_logging
+from app.reminders import jobs
 
 logger = logging.getLogger("planny.worker")
 
@@ -14,9 +14,11 @@ TICK_SECONDS = 30
 
 
 async def tick() -> None:
-    """Reminders, due dates and cleanup join here at stage 5."""
-    async with get_sessionmaker()() as db:
-        await db.execute(text("SELECT 1"))
+    now = utcnow()
+    sessions = get_sessionmaker()
+    await jobs.fire_reminders(sessions, now)
+    await jobs.announce_deadlines(sessions, now)
+    await jobs.clean_up(sessions, now)
 
 
 async def run() -> None:

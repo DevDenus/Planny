@@ -5,21 +5,37 @@ from collections.abc import Collection
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.calendar import series
 from app.calendar.models import Event, EventParticipant, TaskEventLink
+from app.core.clock import utcnow
 
 
 class EventSummary(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: UUID
     title: str
     all_day: bool
     start_at: datetime | None
     start_date: date | None
+    is_recurring: bool
+    next_occurrence_start: datetime | date | None
+
+
+def summary_of(event: Event, now: datetime) -> EventSummary:
+    """`next_occurrence_start` is for series: the fields next to it are a one-off event's own."""
+    upcoming = series.next_occurrence(event, now) if event.recurrence_rule else None
+    return EventSummary(
+        id=event.id,
+        title=event.title,
+        all_day=event.all_day,
+        start_at=event.start_at,
+        start_date=event.start_date,
+        is_recurring=event.recurrence_rule is not None,
+        next_occurrence_start=upcoming.start if upcoming else None,
+    )
 
 
 async def linked_events(db: AsyncSession, user_id: UUID, task_id: UUID) -> list[EventSummary]:
@@ -34,7 +50,8 @@ async def linked_events(db: AsyncSession, user_id: UUID, task_id: UUID) -> list[
         .where(TaskEventLink.task_id == task_id, Event.deleted_at.is_(None))
         .order_by(Event.start_at, Event.start_date, Event.id)
     )
-    return [EventSummary.model_validate(event) for event in rows]
+    now = utcnow()
+    return [summary_of(event, now) for event in rows]
 
 
 async def participating(db: AsyncSession, user_id: UUID, event_ids: Collection[UUID]) -> set[UUID]:

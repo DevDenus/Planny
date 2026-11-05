@@ -1,13 +1,12 @@
 import { Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import type { EventSummary, SearchResults } from "../../api/client";
+import type { SearchResults } from "../../api/client";
 import { Banner, Dialog, IconButton, Spinner, TextField, cx } from "../../ui";
 import { useCurrentUser } from "../auth/session";
 import { useSearch } from "../calendar/api";
 import { useEventParam } from "../calendar/eventLinks";
-import { dayTitle } from "../calendar/period";
-import { clockTime, localDate } from "../tasks/dates";
+import { eventWhen } from "../calendar/items";
 import { useTaskParam } from "../tasks/taskLinks";
 import styles from "./SearchBox.module.css";
 
@@ -23,18 +22,11 @@ function useDebounced(value: string, delay: number): string {
   return debounced;
 }
 
-/** The day of an event and, unless it lasts all day, its start time. */
-function whenOf(event: EventSummary, timeZone: string): string {
-  if (event.all_day) return event.start_date ? dayTitle(event.start_date) : "";
-  if (!event.start_at) return "";
-  return `${dayTitle(localDate(event.start_at, timeZone))}, ${clockTime(event.start_at, timeZone)}`;
-}
-
 type ResultsProps = {
   results: SearchResults | undefined;
   failed: boolean;
   timeZone: string;
-  onEvent: (id: string) => void;
+  onEvent: (id: string, occurrence?: string) => void;
   onTask: (id: string) => void;
 };
 
@@ -58,10 +50,14 @@ function Results({ results, failed, timeZone, onEvent, onTask }: ResultsProps) {
           <h3 className={styles.heading}>События</h3>
           <ul className={styles.list}>
             {events.map((event) => {
-              const when = whenOf(event, timeZone);
+              const when = eventWhen(event, timeZone);
               return (
                 <li key={event.id}>
-                  <button type="button" className={styles.item} onClick={() => onEvent(event.id)}>
+                  <button
+                    type="button"
+                    className={styles.item}
+                    onClick={() => onEvent(event.id, event.next_occurrence_start ?? undefined)}
+                  >
                     <span className={styles.title}>{event.title}</span>
                     {when && <span className={styles.meta}>{when}</span>}
                   </button>
@@ -156,7 +152,7 @@ function SearchField({ dropdown = false, onChosen }: FieldProps) {
             results={data}
             failed={isError}
             timeZone={timeZone}
-            onEvent={(id) => choose(() => openEvent(id))}
+            onEvent={(id, occurrence) => choose(() => openEvent(id, occurrence))}
             onTask={(id) => choose(() => openTask(id))}
           />
         </div>

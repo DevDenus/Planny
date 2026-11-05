@@ -203,6 +203,7 @@ class Task(TaskSummary):
     description: str | None
     checklist: list[ChecklistItem]
     linked_events: list[EventSummary]
+    reminder_at: datetime | None
     created_by: UserSummary
     version: int
     created_at: datetime
@@ -219,8 +220,9 @@ class Deadline(BaseModel):
     start_date: date | None = None
     due_date: date | None = None
     due_at: AwareDatetime | None = None
+    reminder_at: AwareDatetime | None = None
 
-    @field_validator("due_at")
+    @field_validator("due_at", "reminder_at")
     @classmethod
     def to_utc(cls, value: datetime | None) -> datetime | None:
         return value.astimezone(UTC) if value else None
@@ -245,6 +247,8 @@ class TaskCreate(Input, Deadline):
 
 
 class TaskUpdate(Patch, Deadline):
+    """`reminder_at` is personal: it belongs to whoever sends it and `version` doesn't cover it."""
+
     not_nullable: ClassVar[frozenset[str]] = frozenset(
         {"title", "priority", "assignee_ids", "label_ids"}
     )

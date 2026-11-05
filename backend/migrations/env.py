@@ -9,10 +9,17 @@ from app.core.config import get_settings
 from app.core.db import Base
 from app.identity import models as identity_models
 from app.notifications import models as notification_models
+from app.reminders import models as reminder_models
 from app.tasks import models as task_models
 
 # Imported for the side effect of registering the tables on Base.metadata.
-__all__ = ["calendar_models", "identity_models", "notification_models", "task_models"]
+__all__ = [
+    "calendar_models",
+    "identity_models",
+    "notification_models",
+    "reminder_models",
+    "task_models",
+]
 
 
 def run_migrations(connection: Connection) -> None:

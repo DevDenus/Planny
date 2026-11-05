@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 
+import type { EventSummary } from "../../api/client";
 import { makeDeadline, makeOccurrence } from "../tasks/testing";
 import { validate, newDraft, type EventDraft } from "./EventForm";
-import { eventDays, eventTime, gridInput, isShown, itemsOfDay, onDay, wallClock } from "./items";
+import {
+  eventDays,
+  eventTime,
+  eventWhen,
+  gridInput,
+  isShown,
+  itemsOfDay,
+  onDay,
+  wallClock,
+} from "./items";
 
 const MOSCOW = "Europe/Moscow";
 const TOKYO = "Asia/Tokyo";
@@ -12,6 +22,16 @@ const COLORS = new Map([["work", "blue" as const]]);
 const timed = (start_at: string, end_at: string) => makeOccurrence({ start_at, end_at });
 const allDay = (start_date: string, end_date: string) =>
   makeOccurrence({ all_day: true, start_at: null, end_at: null, start_date, end_date });
+const summary = (change: Partial<EventSummary> = {}): EventSummary => ({
+  id: "e1",
+  title: "Ужин вдвоём",
+  all_day: false,
+  start_at: "2026-11-06T16:00:00Z",
+  start_date: null,
+  is_recurring: false,
+  next_occurrence_start: null,
+  ...change,
+});
 
 describe("days of an event", () => {
   it("takes them from the zone of the reader", () => {
@@ -94,6 +114,28 @@ describe("time of an event as text", () => {
   });
 });
 
+describe("when an event is named in a list", () => {
+  it("is its start in the zone of the reader", () => {
+    expect(eventWhen(summary(), MOSCOW)).toBe("Пт, 6 ноября, 19:00");
+  });
+
+  it("is the next repeat of a series", () => {
+    const series = summary({ is_recurring: true, next_occurrence_start: "2026-11-13T16:00:00Z" });
+    expect(eventWhen(series, MOSCOW)).toBe("Пт, 13 ноября, 19:00");
+  });
+
+  it("is the start of a series that has no repeat left", () => {
+    expect(eventWhen(summary({ is_recurring: true }), MOSCOW)).toBe("Пт, 6 ноября, 19:00");
+  });
+
+  it("is the day alone for an all-day event, and its next repeat is a day too", () => {
+    const day = { all_day: true, start_at: null, start_date: "2026-11-06" };
+    expect(eventWhen(summary(day), MOSCOW)).toBe("Пт, 6 ноября");
+    const series = { ...day, is_recurring: true, next_occurrence_start: "2026-11-09" };
+    expect(eventWhen(summary(series), MOSCOW)).toBe("Пн, 9 ноября");
+  });
+});
+
 describe("filters", () => {
   const filters = { hiddenCategories: ["work"], tasksHidden: false };
 
@@ -116,6 +158,20 @@ describe("what FullCalendar gets", () => {
   it("is the wall clock of the profile zone, without an offset", () => {
     expect(wallClock("2026-11-06T13:05:00Z", MOSCOW)).toBe("2026-11-06T16:05:00");
     expect(wallClock("2026-11-06T13:05:00Z", TOKYO)).toBe("2026-11-06T22:05:00");
+  });
+
+  it("gives each repeat of a series its own id", () => {
+    const first = makeOccurrence({ is_recurring: true });
+    const second = makeOccurrence({
+      is_recurring: true,
+      occurrence_start: "2026-11-07T16:00:00Z",
+      start_at: "2026-11-07T16:00:00Z",
+      end_at: "2026-11-07T17:00:00Z",
+    });
+    const firstId = gridInput(first, MOSCOW, COLORS).id;
+    const secondId = gridInput(second, MOSCOW, COLORS).id;
+    expect(firstId).not.toBe(secondId);
+    expect(firstId).toContain("e1");
   });
 
   it("makes the inclusive end of an all-day event exclusive", () => {

@@ -1,6 +1,6 @@
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -43,6 +43,8 @@ from app.tasks.models import (
     TaskLabel,
 )
 from app.tasks.schemas import TaskScope, TaskSort, TaskStatus
+
+LATEST_ZONE_OFFSET = timedelta(hours=14)
 
 # Row locks here use FOR NO KEY UPDATE (key_share=True): the foreign keys of activity rows and
 # assignees take FOR KEY SHARE on the task, and a plain FOR UPDATE would turn that into a
@@ -108,6 +110,16 @@ async def members_of(db: AsyncSession, board_ids: Collection[UUID]) -> Sequence[
 
 async def get_member(db: AsyncSession, board_id: UUID, user_id: UUID) -> BoardMember | None:
     return await db.get(BoardMember, (board_id, user_id))
+
+
+async def owner_ids(db: AsyncSession, board_id: UUID) -> list[UUID]:
+    return list(
+        await db.scalars(
+            select(BoardMember.user_id).where(
+                BoardMember.board_id == board_id, BoardMember.role == BoardRole.owner
+            )
+        )
+    )
 
 
 async def member_ids(db: AsyncSession, board_id: UUID) -> list[UUID]:
@@ -394,6 +406,48 @@ async def lock_task(db: AsyncSession, task_id: UUID) -> Task | None:
         .where(Task.id == task_id)
         .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
+    )
+
+
+async def unannounced_deadlines(db: AsyncSession, now: datetime) -> list[UUID]:
+    """Cards the worker has to look at. 09:00 of a date comes first in the zone furthest ahead,
+    and the worker decides for each recipient. A card on an archived board stays out of sight."""
+    latest_day = (now + LATEST_ZONE_OFFSET).date()
+    rows = await db.scalars(
+        select(Task.id)
+        .join(Board, Board.id == Task.board_id)
+        .where(
+            Task.due_notified_at.is_(None),
+            Task.completed_at.is_(None),
+            Task.deleted_at.is_(None),
+            Board.archived_at.is_(None),
+            or_(Task.due_at <= now, Task.due_date <= latest_day),
+        )
+    )
+    return list(rows)
+
+
+async def lock_unannounced_task(db: AsyncSession, task_id: UUID) -> Task | None:
+    return await db.scalar(
+        select(Task)
+        .where(
+            Task.id == task_id,
+            Task.due_notified_at.is_(None),
+            Task.completed_at.is_(None),
+            Task.deleted_at.is_(None),
+            or_(Task.due_at.is_not(None), Task.due_date.is_not(None)),
+        )
+        .with_for_update(key_share=True, skip_locked=True)
+        .execution_options(populate_existing=True)
+    )
+
+
+async def mark_deadline_announced(db: AsyncSession, task_id: UUID, now: datetime) -> None:
+    """Nobody changed the card, so `updated_at` is carried over instead of its onupdate."""
+    await db.execute(
+        update(Task)
+        .where(Task.id == task_id)
+        .values(due_notified_at=now, updated_at=Task.updated_at)
     )
 
 

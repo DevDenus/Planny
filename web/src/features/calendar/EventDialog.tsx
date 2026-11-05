@@ -11,10 +11,12 @@ import { EventView } from "./EventView";
 function ExistingEvent({
   id,
   editing,
+  occurrence,
   onClose,
 }: {
   id: string;
   editing: boolean;
+  occurrence?: string;
   onClose: () => void;
 }) {
   const { data: user } = useCurrentUser();
@@ -34,7 +36,9 @@ function ExistingEvent({
     );
   }
   if (event && user && !gone) {
-    return <EventView event={event} timeZone={user.timezone} onClose={onClose} />;
+    return (
+      <EventView event={event} occurrence={occurrence} timeZone={user.timezone} onClose={onClose} />
+    );
   }
   return (
     <Dialog title="Событие" width={640} onClose={onClose}>
@@ -52,10 +56,18 @@ function ExistingEvent({
 /** Mounted once in the shell, so an event opens over whatever screen is underneath. */
 export function EventDialogHost() {
   const { data: user } = useCurrentUser();
-  const { event, editing, start, taskId, title, close } = useEventParam();
+  const { event, editing, occurrence, start, taskId, title, close } = useEventParam();
   if (!event) return null;
   if (event !== NEW_EVENT) {
-    return <ExistingEvent key={event} id={event} editing={editing} onClose={close} />;
+    return (
+      <ExistingEvent
+        key={event}
+        id={event}
+        editing={editing}
+        occurrence={occurrence}
+        onClose={close}
+      />
+    );
   }
   if (!user) return null;
   return (

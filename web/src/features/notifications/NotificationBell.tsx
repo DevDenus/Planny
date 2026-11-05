@@ -18,6 +18,11 @@ function KindIcon({ kind }: { kind: Notification["kind"] }) {
   return <CalendarDays size={18} aria-hidden="true" />;
 }
 
+function occurrenceStart(item: Notification): string | undefined {
+  const start = item.data.occurrence_start;
+  return typeof start === "string" ? start : undefined;
+}
+
 function Row({ item, timeZone, onOpen }: RowProps) {
   const text = NOTIFICATION_TEXT[item.kind]?.(item.title) ?? item.title;
   return (
@@ -67,7 +72,7 @@ function Panel({ onClose, unread }: { onClose: () => void; unread: number }) {
   const openItem = (item: Notification) => {
     if (item.read_at === null) read.mutate(item.id);
     onClose();
-    if (item.event_id) openEvent(item.event_id);
+    if (item.event_id) openEvent(item.event_id, occurrenceStart(item));
     else if (item.task_id) openTask(item.task_id);
     else if (item.board_id) void navigate(`/boards/${item.board_id}`);
   };

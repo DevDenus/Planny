@@ -1,5 +1,5 @@
 from collections.abc import Collection, Sequence
-from datetime import datetime
+from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, DateTime, and_, delete, func, or_, select, update
@@ -8,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.calendar.models import Event, EventCategory, EventParticipant, TaskEventLink
 from app.core.period import Period
+from app.reminders.models import Reminder
 
-# Dates without time compare as midnight UTC: the order of search results needs no more than that.
+# Dates without time compare as midnight UTC: the margin of the period covers the difference.
 EVENT_START = func.coalesce(Event.start_at, func.timezone("UTC", Event.start_date.cast(DateTime)))
 
 
@@ -133,6 +134,10 @@ async def participants_of(
 
 
 async def remove_participants(db: AsyncSession, event_id: UUID, user_ids: Collection[UUID]) -> None:
+    """A personal reminder goes along with the person it belongs to."""
+    await db.execute(
+        delete(Reminder).where(Reminder.event_id == event_id, Reminder.user_id.in_(user_ids))
+    )
     await db.execute(
         delete(EventParticipant).where(
             EventParticipant.event_id == event_id, EventParticipant.user_id.in_(user_ids)
@@ -140,26 +145,25 @@ async def remove_participants(db: AsyncSession, event_id: UUID, user_ids: Collec
     )
 
 
-def _in_period(period: Period) -> ColumnElement[bool]:
-    return or_(
-        and_(
-            Event.all_day,
-            Event.start_date <= period.last_day,
-            Event.end_date >= period.first_day,
-        ),
-        and_(~Event.all_day, Event.start_at < period.end, Event.end_at > period.start),
+def _may_touch(period: Period) -> ColumnElement[bool]:
+    """Between the first start and the last end of a series. It says nothing of the repeats in
+    between, and the dates of all-day events have no zone, so there is a day of margin on both
+    sides: the exact choice is made after the expansion."""
+    margin = timedelta(days=1)
+    return and_(
+        period.end + margin > EVENT_START,
+        or_(Event.series_end_at.is_(None), Event.series_end_at > period.start - margin),
     )
 
 
 async def events_in_period(
     db: AsyncSession, user_id: UUID, period: Period
 ) -> Sequence[tuple[Event, UUID | None]]:
-    """Pairs of (event, the user's own category)."""
+    """Pairs of (event, the user's own category). Some of them may have no occurrence there."""
     rows = await db.execute(
         select(Event, EventParticipant.category_id)
         .join(EventParticipant, EventParticipant.event_id == Event.id)
-        .where(EventParticipant.user_id == user_id, Event.deleted_at.is_(None), _in_period(period))
-        .order_by(EVENT_START, Event.id)
+        .where(EventParticipant.user_id == user_id, Event.deleted_at.is_(None), _may_touch(period))
     )
     return [(event, category_id) for event, category_id in rows]
 
@@ -169,32 +173,26 @@ async def busy_rows(
     user_ids: Collection[UUID],
     period: Period,
     exclude_event_id: UUID | None,
-) -> Sequence[tuple[UUID, datetime, datetime]]:
-    """Only events with a time make a person busy: not all-day events and not tasks."""
+) -> Sequence[tuple[UUID, Event]]:
+    """Pairs of (user, event). Only events with a time make a person busy: not all-day events
+    and not tasks. Some of them may have no occurrence in the period."""
     query = (
-        select(EventParticipant.user_id, Event.start_at, Event.end_at)
+        select(EventParticipant.user_id, Event)
         .join(Event, Event.id == EventParticipant.event_id)
         .where(
             EventParticipant.user_id.in_(user_ids),
             Event.deleted_at.is_(None),
             ~Event.all_day,
-            Event.start_at < period.end,
-            Event.end_at > period.start,
+            _may_touch(period),
         )
     )
     if exclude_event_id is not None:
         query = query.where(Event.id != exclude_event_id)
     rows = await db.execute(query)
-    return [
-        (user_id, start_at, end_at) for user_id, start_at, end_at in rows if start_at and end_at
-    ]
+    return [(user_id, event) for user_id, event in rows]
 
 
-async def search_events(
-    db: AsyncSession, user_id: UUID, text: str, now: datetime, limit: int
-) -> Sequence[Event]:
-    """The event closest to now goes first: it is the likely one in both directions."""
-    distance = func.abs(func.extract("epoch", EVENT_START - now))
+async def search_events(db: AsyncSession, user_id: UUID, text: str) -> Sequence[Event]:
     return (
         await db.scalars(
             select(Event)
@@ -204,8 +202,6 @@ async def search_events(
                 Event.deleted_at.is_(None),
                 Event.title.icontains(text, autoescape=True),
             )
-            .order_by(distance, Event.id)
-            .limit(limit)
         )
     ).all()
 

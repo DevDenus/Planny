@@ -144,6 +144,9 @@ class Task(Timestamps, Base):
     start_date: Mapped[date | None]
     due_date: Mapped[date | None]
     due_at: Mapped[datetime | None]
+    # The deadline is announced, or was already past when set. Notifications can't tell: they
+    # are deleted after 90 days, and a card overdue for longer would be announced again.
+    due_notified_at: Mapped[datetime | None]
     completed_at: Mapped[datetime | None]
     created_by: Mapped[UUID] = mapped_column(ForeignKey("app_user.id"))
     version: Mapped[int] = mapped_column(default=1)

@@ -3,6 +3,7 @@ import type {
   Category,
   CategoryColor,
   EventOccurrence,
+  EventSummary,
   TaskDeadline,
 } from "../../api/client";
 import { addDays, clockTime, deadlineDay, localDate } from "../tasks/dates";
@@ -71,6 +72,17 @@ export function eventTime(event: TimedEvent, timeZone: string): string {
 }
 
 /**
+ * When an event shows in a list: the day and the start time, or the day alone for an all-day
+ * event. A series shows its next repeat, and its start once no repeat is left to come.
+ */
+export function eventWhen(event: EventSummary, timeZone: string): string {
+  const moment = event.next_occurrence_start ?? (event.all_day ? event.start_date : event.start_at);
+  if (!moment) return "";
+  if (event.all_day) return dayTitle(moment);
+  return `${dayTitle(localDate(moment, timeZone))}, ${clockTime(moment, timeZone)}`;
+}
+
+/**
  * FullCalendar runs in UTC and gets the wall clock of the user: it never sees a real instant, so
  * the zone from the profile holds whatever the zone of the browser is.
  */
@@ -114,7 +126,8 @@ export function gridInput(
     };
   }
   const base = {
-    id: `event-${item.event_id}`,
+    // A series gives one event several repeats on the grid, each with its own id.
+    id: `event-${item.event_id}-${item.occurrence_start}`,
     title: item.title,
     order: 0,
     color: fillOf(item, colors),

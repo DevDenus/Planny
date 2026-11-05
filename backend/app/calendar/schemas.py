@@ -1,5 +1,5 @@
-from datetime import UTC, date, datetime
-from typing import Annotated, Any, ClassVar, Literal
+from datetime import UTC, date, datetime, timedelta
+from typing import Annotated, Any, ClassVar, Literal, Self
 from uuid import UUID
 from zoneinfo import available_timezones
 
@@ -10,9 +10,11 @@ from pydantic import (
     ConfigDict,
     Field,
     field_validator,
+    model_validator,
 )
 
 from app.calendar.links import EventSummary
+from app.calendar.series import Freq
 from app.identity.schemas import UserSummary
 from app.tasks.schemas import (
     Input,
@@ -28,6 +30,13 @@ EventLocation = Annotated[str, Field(max_length=500)]
 Layer = Literal["events", "tasks"]
 MAX_AVAILABILITY_USERS = 50
 SEARCH_LIMIT = 20
+MAX_SERIES_COUNT = 1000
+LAST_SERIES_DAY = date(2999, 12, 31)
+MAX_OCCURRENCE = timedelta(days=366)
+MAX_REMINDERS = 5
+MAX_REMINDER_MINUTES = 30 * 24 * 60
+
+ReminderMinutes = Annotated[int, Field(ge=0, le=MAX_REMINDER_MINUTES)]
 
 
 def _split_commas(value: Any) -> Any:
@@ -91,6 +100,27 @@ class EventTime(BaseModel):
         return value
 
 
+class Recurrence(BaseModel):
+    freq: Freq
+    until: date | None
+    count: int | None
+
+
+class RecurrenceInput(Input):
+    """Both limits empty mean a series without an end. `until` is the last day it may fall on,
+    in the zone of the event. There is no way to pass a rule: the server builds it from this."""
+
+    freq: Freq
+    until: Annotated[date, Field(le=LAST_SERIES_DAY)] | None = None
+    count: Annotated[int, Field(ge=1, le=MAX_SERIES_COUNT)] | None = None
+
+    @model_validator(mode="after")
+    def one_limit(self) -> Self:
+        if self.until is not None and self.count is not None:
+            raise ValueError("a series ends either on a date or after a number of repeats")
+        return self
+
+
 class EventCreate(Input, EventTime):
     id: UUID | None = None
     title: TaskTitle
@@ -99,13 +129,16 @@ class EventCreate(Input, EventTime):
     all_day: bool = False
     participant_ids: list[UUID] = Field(default_factory=list)
     category_id: UUID | None = None
+    recurrence: RecurrenceInput | None = None
+    reminder_minutes: list[ReminderMinutes] = Field(default_factory=list, max_length=MAX_REMINDERS)
 
 
 class EventUpdate(Patch, EventTime):
-    """`category_id` is personal: it belongs to whoever sends it and `version` doesn't cover it."""
+    """`category_id` and `reminder_minutes` are personal: they belong to whoever sends them and
+    `version` doesn't cover them."""
 
     not_nullable: ClassVar[frozenset[str]] = frozenset(
-        {"title", "all_day", "timezone", "participant_ids"}
+        {"title", "all_day", "timezone", "participant_ids", "reminder_minutes"}
     )
 
     version: int
@@ -115,6 +148,8 @@ class EventUpdate(Patch, EventTime):
     all_day: bool | None = None
     participant_ids: list[UUID] | None = None
     category_id: UUID | None = None
+    recurrence: RecurrenceInput | None = None
+    reminder_minutes: list[ReminderMinutes] | None = Field(default=None, max_length=MAX_REMINDERS)
 
 
 class Event(BaseModel):
@@ -128,9 +163,11 @@ class Event(BaseModel):
     start_date: date | None
     end_date: date | None
     timezone: str
+    recurrence: Recurrence | None
     created_by: UserSummary
     participants: list[UserSummary]
     category_id: UUID | None
+    reminder_minutes: list[int]
     linked_tasks: list[TaskSummary]
     version: int
     created_at: datetime
@@ -140,6 +177,7 @@ class Event(BaseModel):
 class EventOccurrence(BaseModel):
     type: Literal["event"] = "event"
     event_id: UUID
+    occurrence_start: datetime | date
     title: str
     location: str | None
     all_day: bool
@@ -149,6 +187,7 @@ class EventOccurrence(BaseModel):
     end_date: date | None
     category_id: UUID | None
     participants: list[UserSummary]
+    is_recurring: bool
 
 
 class TaskDeadline(BaseModel):

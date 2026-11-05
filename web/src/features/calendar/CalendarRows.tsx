@@ -1,4 +1,4 @@
-import { Users } from "lucide-react";
+import { Repeat, Users } from "lucide-react";
 
 import type { CategoryColor, EventOccurrence, TaskDeadline } from "../../api/client";
 import { Avatar, Checkbox, cx } from "../../ui";
@@ -25,11 +25,12 @@ export function EventRow({ event, color, timeZone }: EventRowProps) {
         type="button"
         className={cx(styles.row, styles.event)}
         style={{ "--item": `var(--cat-${color ?? "none"}, var(--border-strong))` } as object}
-        onClick={() => open(event.event_id)}
+        onClick={() => open(event.event_id, event.occurrence_start)}
       >
         <span className={styles.text}>
           <span className={styles.title}>
             {shared && <Users size={15} aria-hidden="true" />}
+            {event.is_recurring && <Repeat size={15} role="img" aria-label="Повторяется" />}
             {event.title}
           </span>
           <span className={styles.meta}>{eventTime(event, timeZone)}</span>

@@ -18,6 +18,8 @@ const LAUNCH: EventSummary = {
   all_day: false,
   start_at: "2026-11-06T16:00:00Z",
   start_date: null,
+  is_recurring: false,
+  next_occurrence_start: null,
 };
 
 beforeEach(() => {
@@ -66,6 +68,39 @@ describe("search box", () => {
     // The time is shown in the zone of the user, which arrives with /me.
     await waitFor(() => expect(event).toHaveTextContent("Пт, 6 ноября, 19:00"));
     expect(screen.getByRole("button", { name: /Купить продукты/ })).toHaveTextContent("Дом");
+  });
+
+  it("shows the next repeat of a found series, and only the day for an all-day one", async () => {
+    stubApp({
+      searchResults: {
+        events: [
+          {
+            ...LAUNCH,
+            is_recurring: true,
+            next_occurrence_start: "2026-11-13T16:00:00Z",
+          },
+          {
+            id: "e2",
+            title: "Ужин на даче",
+            all_day: true,
+            start_at: null,
+            start_date: "2026-11-06",
+            is_recurring: true,
+            next_occurrence_start: "2026-11-09",
+          },
+        ],
+        tasks: [],
+      },
+    });
+    renderSearch(<SearchBox />);
+
+    const user = userEvent.setup();
+    await user.type(input(), "ужин");
+
+    const series = await screen.findByRole("button", { name: /Ужин вдвоём/ });
+    // The time is shown in the zone of the user, which arrives with /me.
+    await waitFor(() => expect(series).toHaveTextContent("Пт, 13 ноября, 19:00"));
+    expect(screen.getByRole("button", { name: /Ужин на даче/ })).toHaveTextContent("Пн, 9 ноября");
   });
 
   it("sends no request and shows no dropdown for blank text", async () => {

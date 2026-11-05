@@ -1022,11 +1022,14 @@ export interface components {
       end_date: string | null;
       /** Timezone */
       timezone: string;
+      recurrence: components["schemas"]["Recurrence"] | null;
       created_by: components["schemas"]["UserSummary"];
       /** Participants */
       participants: components["schemas"]["UserSummary"][];
       /** Category Id */
       category_id: string | null;
+      /** Reminder Minutes */
+      reminder_minutes: number[];
       /** Linked Tasks */
       linked_tasks: components["schemas"]["TaskSummary"][];
       /** Version */
@@ -1071,6 +1074,9 @@ export interface components {
       participant_ids?: string[];
       /** Category Id */
       category_id?: string | null;
+      recurrence?: components["schemas"]["RecurrenceInput"] | null;
+      /** Reminder Minutes */
+      reminder_minutes?: number[];
     };
     /** EventLinkCreate */
     EventLinkCreate: {
@@ -1092,6 +1098,8 @@ export interface components {
        * Format: uuid
        */
       event_id: string;
+      /** Occurrence Start */
+      occurrence_start: string;
       /** Title */
       title: string;
       /** Location */
@@ -1110,6 +1118,8 @@ export interface components {
       category_id: string | null;
       /** Participants */
       participants: components["schemas"]["UserSummary"][];
+      /** Is Recurring */
+      is_recurring: boolean;
     };
     /** EventOccurrences */
     EventOccurrences: {
@@ -1131,10 +1141,15 @@ export interface components {
       start_at: string | null;
       /** Start Date */
       start_date: string | null;
+      /** Is Recurring */
+      is_recurring: boolean;
+      /** Next Occurrence Start */
+      next_occurrence_start: string | null;
     };
     /**
      * EventUpdate
-     * @description `category_id` is personal: it belongs to whoever sends it and `version` doesn't cover it.
+     * @description `category_id` and `reminder_minutes` are personal: they belong to whoever sends them and
+     *     `version` doesn't cover them.
      */
     EventUpdate: {
       /** Start At */
@@ -1161,6 +1176,9 @@ export interface components {
       participant_ids?: string[] | null;
       /** Category Id */
       category_id?: string | null;
+      recurrence?: components["schemas"]["RecurrenceInput"] | null;
+      /** Reminder Minutes */
+      reminder_minutes?: number[] | null;
     };
     /** Health */
     Health: {
@@ -1279,6 +1297,34 @@ export interface components {
       /** Next Cursor */
       next_cursor: string | null;
     };
+    /** Recurrence */
+    Recurrence: {
+      /**
+       * Freq
+       * @enum {string}
+       */
+      freq: "daily" | "weekly" | "monthly";
+      /** Until */
+      until: string | null;
+      /** Count */
+      count: number | null;
+    };
+    /**
+     * RecurrenceInput
+     * @description Both limits empty mean a series without an end. `until` is the last day it may fall on,
+     *     in the zone of the event. There is no way to pass a rule: the server builds it from this.
+     */
+    RecurrenceInput: {
+      /**
+       * Freq
+       * @enum {string}
+       */
+      freq: "daily" | "weekly" | "monthly";
+      /** Until */
+      until?: string | null;
+      /** Count */
+      count?: number | null;
+    };
     /** SearchResults */
     SearchResults: {
       /** Events */
@@ -1351,6 +1397,8 @@ export interface components {
       checklist: components["schemas"]["ChecklistItem"][];
       /** Linked Events */
       linked_events: components["schemas"]["EventSummary"][];
+      /** Reminder At */
+      reminder_at: string | null;
       created_by: components["schemas"]["UserSummary"];
       /** Version */
       version: number;
@@ -1428,6 +1476,8 @@ export interface components {
       due_date?: string | null;
       /** Due At */
       due_at?: string | null;
+      /** Reminder At */
+      reminder_at?: string | null;
       /** Id */
       id?: string | null;
       /** Board Id */
@@ -1551,7 +1601,10 @@ export interface components {
        */
       updated_at: string;
     };
-    /** TaskUpdate */
+    /**
+     * TaskUpdate
+     * @description `reminder_at` is personal: it belongs to whoever sends it and `version` doesn't cover it.
+     */
     TaskUpdate: {
       /** Start Date */
       start_date?: string | null;
@@ -1559,6 +1612,8 @@ export interface components {
       due_date?: string | null;
       /** Due At */
       due_at?: string | null;
+      /** Reminder At */
+      reminder_at?: string | null;
       /** Version */
       version: number;
       /** Title */

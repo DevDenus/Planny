@@ -58,7 +58,11 @@ export function CompactMonth({
             <span className={styles.dots}>
               {dots.map((item) => (
                 <span
-                  key={item.type === "task" ? item.task_id : item.event_id}
+                  key={
+                    item.type === "task"
+                      ? item.task_id
+                      : `${item.event_id}-${item.occurrence_start}`
+                  }
                   className={styles.dot}
                   style={{ background: dotColor(item, colors) }}
                 />

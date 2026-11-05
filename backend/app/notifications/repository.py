@@ -1,8 +1,10 @@
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select, tuple_, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.notifications.models import Notification
@@ -47,3 +49,29 @@ async def mark_read(db: AsyncSession, user_id: UUID, now: datetime) -> int:
 
 async def get_notification(db: AsyncSession, notification_id: UUID) -> Notification | None:
     return await db.get(Notification, notification_id)
+
+
+async def add_once(db: AsyncSession, **values: Any) -> bool:
+    """True if the row was written, False if `dedupe_key` already has one."""
+    result = await db.execute(
+        insert(Notification)
+        .values(**values)
+        .on_conflict_do_nothing(index_elements=[Notification.dedupe_key])
+        .returning(Notification.id)
+    )
+    return result.first() is not None
+
+
+async def read_reminders(
+    db: AsyncSession, user_id: UUID, prefix: str, keeping: str, now: datetime
+) -> None:
+    await db.execute(
+        update(Notification)
+        .where(
+            Notification.user_id == user_id,
+            Notification.read_at.is_(None),
+            Notification.dedupe_key.startswith(prefix, autoescape=True),
+            Notification.dedupe_key != keeping,
+        )
+        .values(read_at=now)
+    )

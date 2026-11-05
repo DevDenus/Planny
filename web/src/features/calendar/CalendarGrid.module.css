@@ -107,11 +107,23 @@
   font-size: var(--text-xs);
 }
 
-.shared {
+/* The marks of a repeat and of a shared event sit side by side in the corner. */
+.marks {
   position: absolute;
   right: 6px;
   bottom: 3px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   color: var(--text-secondary);
+}
+
+/* Two marks don't fit next to the time, and it gives way rather than slide under them. */
+.event:has(.marks > :nth-child(2)) .time {
+  overflow: hidden;
+  padding-right: 28px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .selected {

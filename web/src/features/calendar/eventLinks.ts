@@ -4,13 +4,15 @@ import { useSearchParams } from "react-router";
 /**
  * The event dialog lives in the URL, as the task form does: it opens over any screen, a
  * notification can lead to it, and the back button closes it. `event` is an id or "new".
+ * `occurrence` names one repeat of a series: the id alone says only which series it is.
  */
 const EVENT_PARAM = "event";
 const EDIT_PARAM = "edit";
+const OCCURRENCE_PARAM = "occurrence";
 const START_PARAM = "start";
 const TASK_PARAM = "for_task";
 const TITLE_PARAM = "event_title";
-const PARAMS = [EVENT_PARAM, EDIT_PARAM, START_PARAM, TASK_PARAM, TITLE_PARAM];
+const PARAMS = [EVENT_PARAM, EDIT_PARAM, OCCURRENCE_PARAM, START_PARAM, TASK_PARAM, TITLE_PARAM];
 export const NEW_EVENT = "new";
 
 /** What a new event starts from: a day, a day and a time, or the task it is planned for. */
@@ -20,10 +22,12 @@ export function useEventParam() {
   const [params, setParams] = useSearchParams();
 
   const open = useCallback(
-    (id: string) => {
+    (id: string, occurrence?: string) => {
       setParams((current) => {
         current.set(EVENT_PARAM, id);
         current.delete(EDIT_PARAM);
+        if (occurrence) current.set(OCCURRENCE_PARAM, occurrence);
+        else current.delete(OCCURRENCE_PARAM);
         return current;
       });
     },
@@ -73,6 +77,7 @@ export function useEventParam() {
   return {
     event: params.get(EVENT_PARAM),
     editing: params.has(EDIT_PARAM),
+    occurrence: params.get(OCCURRENCE_PARAM) ?? undefined,
     start: { day: day || undefined, time },
     taskId: params.get(TASK_PARAM) ?? undefined,
     title: params.get(TITLE_PARAM) ?? undefined,

@@ -50,7 +50,15 @@ async def test_an_event_of_someone_else_is_not_found_but_one_taking_part_in_is(
 
     [found] = (await search(client, sasha_headers, "ужин"))["events"]
     assert found["id"] == shared["id"]
-    assert set(found) == {"id", "title", "all_day", "start_at", "start_date"}
+    assert set(found) == {
+        "id",
+        "title",
+        "all_day",
+        "start_at",
+        "start_date",
+        "is_recurring",
+        "next_occurrence_start",
+    }
     assert found["start_at"] == "2026-11-06T16:00:00Z"
 
 
@@ -175,6 +183,33 @@ async def test_the_events_closest_to_now_come_first(client: AsyncClient) -> None
         "Ужин через год",
         "Ужин год назад",
     ]
+
+
+async def test_a_series_is_as_close_as_its_nearest_occurrence(client: AsyncClient) -> None:
+    _, headers = await signed_in(client, "sasha")
+    tomorrow = utcnow() + timedelta(days=1)
+    for number in range(20):
+        await create_event(
+            client,
+            headers,
+            title=f"Ужин {number}",
+            start_at=tomorrow.isoformat(),
+            end_at=(tomorrow + timedelta(hours=1)).isoformat(),
+        )
+    started = utcnow() - timedelta(days=400) + timedelta(minutes=5)
+    await create_event(
+        client,
+        headers,
+        title="Ужин каждый день",
+        start_at=started.isoformat(),
+        end_at=(started + timedelta(hours=1)).isoformat(),
+        recurrence={"freq": "daily"},
+    )
+
+    found = await search(client, headers, "ужин")
+
+    assert len(found["events"]) == 20
+    assert found["events"][0]["title"] == "Ужин каждый день"
 
 
 async def test_open_tasks_come_before_done_ones(client: AsyncClient) -> None:

@@ -33,7 +33,7 @@ export function DayPanel({ day, items, colors, timeZone, tasksOnly }: DayPanelPr
             <ul className={rowStyles.list}>
               {events.map((event) => (
                 <EventRow
-                  key={event.event_id}
+                  key={`${event.event_id}-${event.occurrence_start}`}
                   event={event}
                   color={event.category_id ? colors.get(event.category_id) : undefined}
                   timeZone={timeZone}
