@@ -26,6 +26,21 @@ export type TaskActivityPage = Schemas["TaskActivityPage"];
 export type Notification = Schemas["Notification"];
 export type NotificationPage = Schemas["NotificationPage"];
 export type SyncState = Schemas["SyncState"];
+export type Category = Schemas["Category"];
+export type CategoryColor = Category["color"];
+export type CategoryCreate = Schemas["CategoryCreate"];
+export type CategoryUpdate = Schemas["CategoryUpdate"];
+/** "Event" alone would hide the DOM type of the same name. */
+export type CalendarEvent = Schemas["Event"];
+export type EventCreate = Schemas["EventCreate"];
+export type EventUpdate = Schemas["EventUpdate"];
+export type EventSummary = Schemas["EventSummary"];
+export type EventOccurrence = Schemas["EventOccurrence"];
+export type TaskDeadline = Schemas["TaskDeadline"];
+export type CalendarItem = EventOccurrence | TaskDeadline;
+export type BusyInterval = Schemas["BusyInterval"];
+export type UserAvailability = Schemas["UserAvailability"];
+export type SearchResults = Schemas["SearchResults"];
 
 interface ApiErrorBody {
   error: {

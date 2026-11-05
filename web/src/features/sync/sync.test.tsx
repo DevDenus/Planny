@@ -66,7 +66,7 @@ describe("sync", () => {
     const sync = quietSync();
     const calls = stubApp({ boards: [personal], notifications, sync });
     renderApp("/calendar");
-    expect(await screen.findByRole("heading", { name: "Календарь" })).toBeInTheDocument();
+    expect(await screen.findByRole("radiogroup", { name: "Вид" })).toBeInTheDocument();
 
     const user = userEvent.setup({ delay: null });
     const [bell] = screen.getAllByRole("button", { name: "Уведомления" });

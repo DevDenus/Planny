@@ -50,14 +50,19 @@ async def locked_access(principal: Principal, db: AsyncSession, board_id: UUID) 
 
 
 async def publish(
-    db: AsyncSession, *board_ids: UUID, notified: Collection[UUID] | None = None
+    db: AsyncSession,
+    *board_ids: UUID,
+    notified: Collection[UUID] | None = None,
+    calendar_for: Collection[UUID] = (),
 ) -> None:
     """Call last in a transaction: see sync.bump."""
     await db.flush()
     members: set[UUID] = set()
     for board_id in board_ids:
         members |= set(await repository.member_ids(db, board_id))
-    await sync.bump(db, tasks_for=members, notifications_for=notified or ())
+    await sync.bump(
+        db, calendar_for=calendar_for, tasks_for=members, notifications_for=notified or ()
+    )
 
 
 def require_writable(target: BoardAccess) -> None:

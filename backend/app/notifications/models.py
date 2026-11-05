@@ -33,8 +33,6 @@ class SyncScope(StrEnum):
 
 
 class Notification(Base):
-    """event_id joins at stage 4 together with the event table it references."""
-
     __tablename__ = "notification"
     __table_args__ = (
         Index("ix_notification_user_id_created_at", "user_id", text("created_at DESC")),
@@ -50,6 +48,7 @@ class Notification(Base):
     kind: Mapped[NotificationKind] = mapped_column(pg_enum(NotificationKind, "notification_kind"))
     actor_id: Mapped[UUID | None] = mapped_column(ForeignKey("app_user.id"))
     title: Mapped[str] = mapped_column(Text)
+    event_id: Mapped[UUID | None] = mapped_column(ForeignKey("event.id"))
     task_id: Mapped[UUID | None] = mapped_column(ForeignKey("task.id"))
     board_id: Mapped[UUID | None] = mapped_column(ForeignKey("board.id"))
     data: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)

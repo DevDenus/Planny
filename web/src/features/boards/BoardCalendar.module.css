@@ -1,0 +1,12 @@
+.calendar {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.grid {
+  flex: 1;
+  min-height: 640px;
+}

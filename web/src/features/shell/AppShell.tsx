@@ -1,10 +1,13 @@
-import { CalendarDays, ListChecks, Plus, Search, Settings, SquareKanban } from "lucide-react";
+import { CalendarDays, ListChecks, Plus, Settings, SquareKanban } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation, useMatch } from "react-router";
 
-import { Avatar, IconButton, Logo } from "../../ui";
+import { Avatar, Logo } from "../../ui";
 import { useCurrentUser } from "../auth/session";
 import { BoardsNav } from "../boards/BoardsNav";
+import { CalendarNav } from "../calendar/CalendarFilters";
+import { EventDialogHost } from "../calendar/EventDialog";
 import { NotificationBell } from "../notifications/NotificationBell";
+import { SearchBox, SearchButton } from "../search/SearchBox";
 import { useSync } from "../sync/useSync";
 import { TaskDialogHost } from "../tasks/TaskDialog";
 import { newTaskSearch } from "../tasks/taskLinks";
@@ -22,9 +25,6 @@ const navClass = ({ isActive }: { isActive: boolean }) =>
 
 const tabClass = ({ isActive }: { isActive: boolean }) =>
   isActive ? `${styles.tab} ${styles.tabActive}` : styles.tab;
-
-/** Search arrives later, together with the calendar. */
-const NOT_YET = "Появится позже";
 
 function AddTaskButton() {
   const { pathname } = useLocation();
@@ -64,6 +64,7 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
+        <CalendarNav />
         <BoardsNav />
         <div className={styles.sidebarBottom}>
           <NavLink to={SETTINGS.to} className={navClass} title={SETTINGS.label}>
@@ -80,10 +81,9 @@ export function AppShell() {
       </aside>
 
       <header className={styles.topbar}>
-        <label className={styles.search}>
-          <Search size={18} aria-hidden="true" />
-          <input type="search" placeholder="Поиск" aria-label="Поиск" disabled title={NOT_YET} />
-        </label>
+        <div className={styles.search}>
+          <SearchBox />
+        </div>
         <NotificationBell unread={unread} />
         {user && (
           <NavLink to={SETTINGS.to} className={styles.profileLink} aria-label="Профиль">
@@ -95,9 +95,7 @@ export function AppShell() {
       <header className={styles.mobileHeader}>
         <Logo />
         <div className={styles.mobileActions}>
-          <IconButton label="Поиск" disabled title={NOT_YET}>
-            <Search size={20} />
-          </IconButton>
+          <SearchButton />
           <NotificationBell unread={unread} />
         </div>
       </header>
@@ -113,6 +111,7 @@ export function AppShell() {
 
       <AddTaskButton />
       <TaskDialogHost />
+      <EventDialogHost />
 
       <nav className={styles.tabs} aria-label="Разделы">
         {[...SECTIONS, SETTINGS].map(({ to, label, Icon }) => (

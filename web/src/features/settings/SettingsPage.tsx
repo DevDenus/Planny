@@ -6,6 +6,7 @@ import { ApiError } from "../../api/client";
 import { Banner, Button, Panel, PasswordField } from "../../ui";
 import { PASSWORD_MIN_LENGTH, validateNewPassword, type NewPasswordErrors } from "../auth/password";
 import { useChangePassword, useLogout } from "../auth/session";
+import { CategoriesSection } from "./CategoriesSection";
 import styles from "./SettingsPage.module.css";
 
 function PasswordSection() {
@@ -120,6 +121,7 @@ export function SettingsPage() {
   return (
     <section className={styles.page}>
       <h1 className={styles.title}>Настройки</h1>
+      <CategoriesSection />
       <PasswordSection />
       <LogoutSection />
     </section>

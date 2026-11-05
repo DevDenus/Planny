@@ -2,7 +2,7 @@ COMPOSE = docker compose --project-directory deploy -f deploy/compose.yaml -f de
 TEST_COMPOSE = docker compose -f deploy/compose.test.yaml
 E2E_COMPOSE = docker compose --project-directory deploy -f deploy/compose.yaml -f deploy/compose.e2e.yaml
 
-.PHONY: env up down logs test-db test test-backend test-bff test-web e2e lint format openapi client
+.PHONY: env up down db-reset logs test-db test test-backend test-bff test-web e2e lint format openapi client
 
 deploy/.env:
 	@umask 077; { \
@@ -21,6 +21,11 @@ up: deploy/.env
 
 down:
 	$(COMPOSE) down
+
+# Until stage 8 a change of the schema recreates the database: everything in it is lost.
+db-reset: deploy/.env
+	$(COMPOSE) down -v
+	$(COMPOSE) up -d --build --wait
 
 logs:
 	$(COMPOSE) logs -f

@@ -78,6 +78,10 @@ def invariant_violation(message: str) -> AppError:
     return AppError(HTTPStatus.CONFLICT, "invariant_violation", message)
 
 
+def range_too_large() -> AppError:
+    return AppError(HTTPStatus.UNPROCESSABLE_ENTITY, "range_too_large", "Период длиннее 366 дней")
+
+
 def rate_limited(retry_after: int) -> AppError:
     return AppError(
         HTTPStatus.TOO_MANY_REQUESTS,

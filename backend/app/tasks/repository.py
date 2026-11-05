@@ -8,6 +8,7 @@ from sqlalchemy import (
     ColumnElement,
     DateTime,
     Integer,
+    Select,
     Text,
     Uuid,
     and_,
@@ -26,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, aliased
 from sqlalchemy.types import TypeEngine
 
+from app.core.period import Period
 from app.tasks.models import (
     ActivityKind,
     Board,
@@ -620,6 +622,79 @@ def _task_conditions(query: TaskQuery) -> list[ColumnElement[bool]]:
     if query.no_due:
         conditions.append(and_(Task.due_date.is_(None), Task.due_at.is_(None)))
     return conditions
+
+
+async def deadlines(
+    db: AsyncSession,
+    user_id: UUID,
+    period: Period,
+    board_id: UUID | None,
+    assignee_id: UUID | None,
+    label_id: UUID | None,
+) -> Sequence[tuple[Task, str]]:
+    """Whether the task is done doesn't matter: a done one stays on its day, crossed out."""
+    statement = _readable_tasks(user_id).where(
+        Task.deleted_at.is_(None),
+        or_(
+            and_(Task.due_date >= period.first_day, Task.due_date <= period.last_day),
+            and_(Task.due_at >= period.start, Task.due_at < period.end),
+        ),
+    )
+    if board_id is not None:
+        statement = statement.where(Task.board_id == board_id)
+    else:
+        assigned = exists().where(TaskAssignee.task_id == Task.id)
+        mine = exists().where(TaskAssignee.task_id == Task.id, TaskAssignee.user_id == user_id)
+        statement = statement.where(Board.archived_at.is_(None), or_(mine, ~assigned))
+    if assignee_id is not None:
+        statement = statement.where(
+            exists().where(TaskAssignee.task_id == Task.id, TaskAssignee.user_id == assignee_id)
+        )
+    if label_id is not None:
+        statement = statement.where(
+            exists().where(TaskLabel.task_id == Task.id, TaskLabel.label_id == label_id)
+        )
+    rows = await db.execute(statement.order_by(DEADLINE_KEY, Task.id))
+    return [(task, name) for task, name in rows]
+
+
+async def visible_tasks(
+    db: AsyncSession, user_id: UUID, task_ids: Collection[UUID]
+) -> Sequence[tuple[Task, str]]:
+    if not task_ids:
+        return []
+    rows = await db.execute(
+        _readable_tasks(user_id)
+        .where(Task.id.in_(task_ids), Task.deleted_at.is_(None))
+        .order_by(Task.created_at, Task.id)
+    )
+    return [(task, name) for task, name in rows]
+
+
+async def search_tasks(
+    db: AsyncSession, user_id: UUID, text_query: str, limit: int
+) -> Sequence[tuple[Task, str]]:
+    rows = await db.execute(
+        _readable_tasks(user_id)
+        .where(
+            Task.deleted_at.is_(None),
+            Board.archived_at.is_(None),
+            Task.title.icontains(text_query, autoescape=True),
+        )
+        .order_by(Task.completed_at.is_not(None), DEADLINE_KEY, Task.id)
+        .limit(limit)
+    )
+    return [(task, name) for task, name in rows]
+
+
+def _readable_tasks(user_id: UUID) -> Select[Task, str]:
+    return (
+        select(Task, Board.name)
+        .join(Board, Board.id == Task.board_id)
+        .join(
+            BoardMember, and_(BoardMember.board_id == Task.board_id, BoardMember.user_id == user_id)
+        )
+    )
 
 
 async def list_tasks(db: AsyncSession, query: TaskQuery) -> Sequence[tuple[Task, str, Any]]:

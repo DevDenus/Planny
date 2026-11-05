@@ -24,17 +24,17 @@ import { BoardColumnSection } from "./BoardColumnSection";
 import { BoardDialog } from "./BoardDialog";
 import { BoardIcon } from "./BoardIcon";
 import { useBoard, useColumns, useLabels } from "./api";
+import { BoardCalendar } from "./BoardCalendar";
 import styles from "./BoardPage.module.css";
 import { BoardRowPreview } from "./BoardRow";
 import { DragLayer } from "./dnd/DragLayer";
 import { KanbanBoard } from "./kanban/KanbanBoard";
 
-const NOT_YET = "Появится позже";
 type View = "list" | "kanban" | "calendar";
 const VIEWS = [
   { value: "list" as const, label: "Список" },
   { value: "kanban" as const, label: "Kanban" },
-  { value: "calendar" as const, label: "Календарь", disabled: true, title: NOT_YET },
+  { value: "calendar" as const, label: "Календарь" },
 ];
 const ALL_MEMBERS = "";
 const ALL_LABELS = "";
@@ -45,7 +45,7 @@ const viewKey = (boardId: string) => `planny.board-view.${boardId}`;
 function rememberedView(boardId: string): View | null {
   try {
     const saved = window.localStorage.getItem(viewKey(boardId));
-    return saved === "list" || saved === "kanban" ? saved : null;
+    return VIEWS.find((view) => view.value === saved)?.value ?? null;
   } catch {
     return null;
   }
@@ -173,7 +173,7 @@ function BoardScreen({ boardId }: { boardId: string | undefined }) {
   };
 
   return (
-    <section className={cx(styles.page, view === "kanban" && styles.pageFull)}>
+    <section className={cx(styles.page, view !== "list" && styles.pageFull)}>
       <header className={styles.header}>
         <span className={styles.icon}>
           <BoardIcon icon={board.icon} size={26} />
@@ -243,7 +243,15 @@ function BoardScreen({ boardId }: { boardId: string | undefined }) {
         <Switch label="Только мои" checked={onlyMine} onChange={setOnlyMine} />
       </div>
 
-      {columns.isPending && <Skeleton height={120} />}
+      {view === "calendar" && (
+        <BoardCalendar
+          board={board}
+          filters={filters}
+          now={now}
+          timeZone={user?.timezone ?? "UTC"}
+        />
+      )}
+      {view !== "calendar" && columns.isPending && <Skeleton height={120} />}
       {columns.data && view === "kanban" && (
         <KanbanBoard
           board={board}
@@ -254,7 +262,7 @@ function BoardScreen({ boardId }: { boardId: string | undefined }) {
           readOnly={readOnly(board)}
         />
       )}
-      {columns.data && view !== "kanban" && (
+      {columns.data && view === "list" && (
         <BoardList
           board={board}
           columns={columns.data}

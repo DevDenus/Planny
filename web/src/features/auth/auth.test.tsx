@@ -81,7 +81,7 @@ describe("session guard", () => {
   it("shows the app to a signed-in user", async () => {
     stubBackend((request) => (path(request).endsWith("/me") ? json(200, USER) : undefined));
     renderApp("/calendar");
-    expect(await screen.findByRole("heading", { name: "Календарь" })).toBeInTheDocument();
+    expect(await screen.findByRole("radiogroup", { name: "Вид" })).toBeInTheDocument();
   });
 
   it("forces the password change and does not let the user past it", async () => {
@@ -98,7 +98,7 @@ describe("session guard", () => {
   it("leaves the password screen when no change is due", async () => {
     stubBackend((request) => (path(request).endsWith("/me") ? json(200, USER) : undefined));
     renderApp("/change-password");
-    expect(await screen.findByRole("heading", { name: "Календарь" })).toBeInTheDocument();
+    expect(await screen.findByRole("radiogroup", { name: "Вид" })).toBeInTheDocument();
   });
 
   it("offers a retry when the server fails instead of treating it as signed out", async () => {
@@ -227,7 +227,7 @@ describe("forced password change", () => {
     await user.type(screen.getByLabelText("Повторите пароль"), "a-long-password");
     await user.click(screen.getByRole("button", { name: "Сохранить пароль" }));
 
-    expect(await screen.findByRole("heading", { name: "Календарь" })).toBeInTheDocument();
+    expect(await screen.findByRole("radiogroup", { name: "Вид" })).toBeInTheDocument();
     const change = calls.find((request) => path(request).endsWith("/change-password"))!;
     expect(change.headers.get("X-CSRF-Token")).toBe("csrf-value");
   });

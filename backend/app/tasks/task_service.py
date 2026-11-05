@@ -1,13 +1,14 @@
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import date, datetime, time
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.calendar.links import linked_events
 from app.core.clock import utcnow
 from app.core.errors import AppError, field_error, id_conflict, not_found, version_conflict
 from app.core.ordering import key_after_row, key_between
@@ -18,6 +19,7 @@ from app.core.pagination import (
     parse_id,
     parse_moment,
 )
+from app.core.period import Period
 from app.core.principal import Principal
 from app.identity import service as identity
 from app.identity.schemas import UserSummary
@@ -78,7 +80,9 @@ async def _summaries(
     return result
 
 
-async def _task_out(db: AsyncSession, task: models.Task, board_name: str) -> schemas.Task:
+async def _task_out(
+    principal: Principal, db: AsyncSession, task: models.Task, board_name: str
+) -> schemas.Task:
     """Built before the commit, so a response never describes a different state than it wrote."""
     summary = (await _summaries(db, [(task, board_name)]))[0]
     checklist = await repository.checklist_of(db, task.id)
@@ -87,6 +91,7 @@ async def _task_out(db: AsyncSession, task: models.Task, board_name: str) -> sch
         **summary.model_dump(),
         description=task.description,
         checklist=[schemas.ChecklistItem.model_validate(item) for item in checklist],
+        linked_events=await linked_events(db, principal.user_id, task.id),
         created_by=UserSummary.model_validate(author),
         version=task.version,
         created_at=task.created_at,
@@ -122,7 +127,7 @@ async def _relocked(db: AsyncSession, task_id: UUID) -> models.Task:
 
 async def get_task(principal: Principal, db: AsyncSession, task_id: UUID) -> schemas.Task:
     task, target = await readable(principal, db, task_id)
-    return await _task_out(db, task, target.board.name)
+    return await _task_out(principal, db, task, target.board.name)
 
 
 async def list_tasks(
@@ -160,6 +165,37 @@ async def list_tasks(
         )
     items = await _summaries(db, [(task, name) for task, name, _ in page])
     return schemas.TaskPage(items=items, next_cursor=next_cursor)
+
+
+async def deadlines(
+    principal: Principal,
+    db: AsyncSession,
+    period: Period,
+    board_id: UUID | None,
+    assignee: Literal["me"] | UUID | None,
+    label_id: UUID | None,
+) -> list[schemas.TaskSummary]:
+    """A personal calendar shows the tasks of their assignees, and those nobody took to the whole
+    board. The calendar of a board shows all of them, until the filters narrow them."""
+    if board_id is not None:
+        await board_service.access(principal, db, board_id)
+    assignee_id = principal.user_id if assignee == "me" else assignee
+    rows = await repository.deadlines(
+        db, principal.user_id, period, board_id, assignee_id, label_id
+    )
+    return await _summaries(db, rows)
+
+
+async def visible_tasks(
+    db: AsyncSession, user_id: UUID, task_ids: Sequence[UUID]
+) -> list[schemas.TaskSummary]:
+    return await _summaries(db, await repository.visible_tasks(db, user_id, task_ids))
+
+
+async def search_tasks(
+    principal: Principal, db: AsyncSession, text: str, limit: int
+) -> list[schemas.TaskSummary]:
+    return await _summaries(db, await repository.search_tasks(db, principal.user_id, text, limit))
 
 
 def _day_start(day: date | None, timezone: ZoneInfo) -> datetime | None:
@@ -258,7 +294,7 @@ async def _repeated_task(
     role = await repository.get_role(db, task.board_id, principal.user_id)
     if board is None or role is None:
         raise id_conflict()
-    return await _task_out(db, task, board.name)
+    return await _task_out(principal, db, task, board.name)
 
 
 async def create_task(
@@ -325,7 +361,7 @@ async def create_task(
         )
     notified = _notify_assigned(db, principal, task, added)
     await board_service.publish(db, board_id, notified=notified)
-    created = await _task_out(db, task, target.board.name)
+    created = await _task_out(principal, db, task, target.board.name)
     await db.commit()
     return created
 
@@ -358,8 +394,10 @@ def _apply_fields(task: models.Task, body: schemas.TaskUpdate) -> list[dict[str,
     return changes
 
 
-async def _version_conflict(db: AsyncSession, task: models.Task, board_name: str) -> AppError:
-    current = await _task_out(db, task, board_name)
+async def _version_conflict(
+    principal: Principal, db: AsyncSession, task: models.Task, board_name: str
+) -> AppError:
+    current = await _task_out(principal, db, task, board_name)
     activity = await repository.last_activity(db, task.id)
     last_change = None
     if activity is not None:
@@ -375,7 +413,7 @@ async def update_task(
 ) -> schemas.Task:
     task, target = await locked_writable(principal, db, task_id)
     if task.version != body.version:
-        raise await _version_conflict(db, task, target.board.name)
+        raise await _version_conflict(principal, db, task, target.board.name)
 
     changes = _apply_fields(task, body)
     _check_dates(
@@ -398,7 +436,7 @@ async def update_task(
         await board_service.publish(
             db, task.board_id, notified=_notify_assigned(db, principal, task, added)
         )
-    updated = await _task_out(db, task, target.board.name)
+    updated = await _task_out(principal, db, task, target.board.name)
     await db.commit()
     return updated
 
@@ -501,7 +539,7 @@ async def move_task(
                     task.version += 1
             await relocate(db, principal, task, column, key_between(before, after), boards=boards)
             await board_service.publish(db, source.board.id, target.board.id)
-    moved = await _task_out(db, task, target.board.name)
+    moved = await _task_out(principal, db, task, target.board.name)
     await db.commit()
     return moved
 
@@ -525,7 +563,7 @@ async def _set_done(
             position = key_between(await repository.last_position(db, column.id), None)
         await relocate(db, principal, task, column, position)
         await board_service.publish(db, task.board_id)
-    result = await _task_out(db, task, target.board.name)
+    result = await _task_out(principal, db, task, target.board.name)
     await db.commit()
     return result
 

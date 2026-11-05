@@ -13,6 +13,7 @@ class Notification(BaseModel):
     kind: NotificationKind
     title: str
     actor: UserSummary | None
+    event_id: UUID | None
     task_id: UUID | None
     board_id: UUID | None
     data: dict[str, Any]

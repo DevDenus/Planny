@@ -6,13 +6,20 @@ import { vi } from "vitest";
 import type {
   Board,
   BoardColumn,
+  CalendarEvent,
+  CalendarItem,
+  Category,
   CurrentUser,
+  EventOccurrence,
   Label,
   Notification,
+  SearchResults,
   SyncState,
   Task,
   TaskActivity,
   TaskComment,
+  TaskDeadline,
+  UserAvailability,
   UserSummary,
 } from "../../api/client";
 import { App } from "../../App";
@@ -160,6 +167,7 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     updated_at: now,
     description: null,
     checklist,
+    linked_events: [],
     created_by: USER_SUMMARY,
     version: 1,
     created_at: now,
@@ -182,6 +190,7 @@ export function makeNotification(overrides: Partial<Notification> = {}): Notific
     kind: "task_assigned",
     title: "Задача",
     actor: null,
+    event_id: null,
     task_id: null,
     board_id: null,
     data: {},
@@ -200,6 +209,11 @@ export type AppStub = {
   labels?: Label[];
   comments?: TaskComment[];
   activity?: TaskActivity[];
+  categories?: Category[];
+  calendarItems?: CalendarItem[];
+  events?: CalendarEvent[];
+  availability?: UserAvailability[];
+  searchResults?: SearchResults;
   /** Runs before the GET routes, a Response it returns is the answer. */
   onRequest?: Stub;
 };
@@ -216,6 +230,67 @@ function unhandled(request: Request): Response {
 
 function route(request: Request): string {
   return path(request).replace(`${API}/`, "");
+}
+
+export function makeCategory(overrides: Partial<Category> = {}): Category {
+  return { id: "cat1", name: "Личное", color: "violet", position: 0, ...overrides };
+}
+
+/** On 2026-11-06, 19:00–20:00 in Moscow. */
+export function makeOccurrence(overrides: Partial<EventOccurrence> = {}): EventOccurrence {
+  return {
+    type: "event",
+    event_id: "e1",
+    title: "Ужин вдвоём",
+    location: null,
+    all_day: false,
+    start_at: "2026-11-06T16:00:00Z",
+    end_at: "2026-11-06T17:00:00Z",
+    start_date: null,
+    end_date: null,
+    category_id: null,
+    participants: [USER_SUMMARY],
+    ...overrides,
+  };
+}
+
+export function makeDeadline(overrides: Partial<TaskDeadline> = {}): TaskDeadline {
+  return {
+    type: "task",
+    task_id: "t1",
+    board_id: "b1",
+    board_name: "Дом",
+    title: "Купить продукты",
+    priority: 3,
+    due_date: "2026-11-06",
+    due_at: null,
+    completed_at: null,
+    assignees: [],
+    ...overrides,
+  };
+}
+
+export function makeEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
+  return {
+    id: "e1",
+    title: "Ужин вдвоём",
+    description: null,
+    location: null,
+    all_day: false,
+    start_at: "2026-11-06T16:00:00Z",
+    end_at: "2026-11-06T17:00:00Z",
+    start_date: null,
+    end_date: null,
+    timezone: "Europe/Moscow",
+    created_by: USER_SUMMARY,
+    participants: [USER_SUMMARY],
+    category_id: null,
+    linked_tasks: [],
+    version: 1,
+    created_at: "2026-11-01T10:00:00Z",
+    updated_at: "2026-11-01T10:00:00Z",
+    ...overrides,
+  };
 }
 
 function usersOf(boards: Board[]): UserSummary[] {
@@ -303,6 +378,18 @@ function answer(request: Request, data: AppData): Response {
       return taskRoute(request, data, id, child);
     case "notifications":
       return json(200, { items: data.notifications, next_cursor: null });
+    case "categories":
+      return json(200, { items: data.categories });
+    case "calendar":
+      return json(200, { items: data.calendarItems });
+    case "events": {
+      const event = data.events.find((item) => item.id === id);
+      return event ? json(200, event) : notFound();
+    }
+    case "availability":
+      return json(200, { items: data.availability });
+    case "search":
+      return json(200, data.searchResults);
     default:
       return unhandled(request);
   }
@@ -321,6 +408,11 @@ export function stubApp({
   labels = [],
   comments = [],
   activity = [],
+  categories = [],
+  calendarItems = [],
+  events = [],
+  availability = [],
+  searchResults = { events: [], tasks: [] },
   onRequest,
 }: AppStub = {}): Request[] {
   return stubBackend(async (request) => {
@@ -335,6 +427,11 @@ export function stubApp({
       labels,
       comments,
       activity,
+      categories,
+      calendarItems,
+      events,
+      availability,
+      searchResults,
     });
   });
 }

@@ -28,6 +28,7 @@ def notify(
     *,
     actor_id: UUID,
     title: str,
+    event_id: UUID | None = None,
     task_id: UUID | None = None,
     board_id: UUID | None = None,
     data: dict[str, Any] | None = None,
@@ -40,6 +41,7 @@ def notify(
             kind=kind,
             actor_id=actor_id,
             title=title,
+            event_id=event_id,
             task_id=task_id,
             board_id=board_id,
             data=data or {},
@@ -78,6 +80,7 @@ async def list_notifications(
                     if row.actor_id in actors
                     else None
                 ),
+                event_id=row.event_id,
                 task_id=row.task_id,
                 board_id=row.board_id,
                 data=row.data,

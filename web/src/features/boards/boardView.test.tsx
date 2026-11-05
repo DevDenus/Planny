@@ -9,6 +9,7 @@ import {
   API,
   makeBoard,
   makeColumn,
+  makeDeadline,
   makeLabel,
   makeTask,
   renderApp,
@@ -92,11 +93,48 @@ describe("board view", () => {
     expect(await screen.findByRole("region", { name: "К выполнению" })).toBeInTheDocument();
   });
 
-  it("leaves the calendar view disabled", async () => {
-    const { board } = setup("list");
+  it("shows the calendar of the board, all of it until the filters narrow it", async () => {
+    const urgent = makeLabel({ name: "Срочно" });
+    const { board } = setup("list", [urgent]);
+    const calls = stubApp({
+      boards: [board],
+      labels: [urgent],
+      calendarItems: [makeDeadline({ title: "Купить хлеб", board_id: board.id })],
+    });
+    const lastRequest = () => {
+      const request = requestsTo(calls, "GET", `${API}/calendar/items`).at(-1);
+      return request && searchOf(request);
+    };
+    const user = userEvent.setup();
     renderApp(`/boards/${board.id}`);
 
-    expect(await screen.findByRole("radio", { name: "Календарь" })).toBeDisabled();
+    await user.click(await screen.findByRole("radio", { name: "Календарь" }));
+
+    await waitFor(() => expect(lastRequest()?.get("board_id")).toBe(board.id));
+    expect(lastRequest()?.has("assignee")).toBe(false);
+    expect(lastRequest()?.has("label_id")).toBe(false);
+
+    await user.click(screen.getByRole("switch", { name: "Только мои" }));
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Метка" }), urgent.id);
+
+    await waitFor(() => expect(lastRequest()?.get("label_id")).toBe(urgent.id));
+    expect(lastRequest()?.get("assignee")).toBe("me");
+    expect(lastRequest()?.get("board_id")).toBe(board.id);
+  });
+
+  it("remembers the calendar as the chosen view", async () => {
+    const { board } = setup("list");
+    const user = userEvent.setup();
+    const first = renderApp(`/boards/${board.id}`);
+    await user.click(await screen.findByRole("radio", { name: "Календарь" }));
+    first.unmount();
+
+    renderApp(`/boards/${board.id}`);
+
+    expect(await screen.findByRole("radio", { name: "Календарь" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
   });
 });
 

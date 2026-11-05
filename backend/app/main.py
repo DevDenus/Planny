@@ -5,6 +5,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
 from sqlalchemy import text
 
+from app.calendar.router import router as calendar_router
 from app.core.config import get_settings
 from app.core.db import DbSession, get_engine
 from app.core.errors import install_error_handlers
@@ -52,6 +53,7 @@ def create_app() -> FastAPI:
     api.include_router(identity_router)
     api.include_router(boards_router)
     api.include_router(tasks_router)
+    api.include_router(calendar_router)
     api.include_router(notifications_router)
 
     @api.get("/health", tags=["system"])
