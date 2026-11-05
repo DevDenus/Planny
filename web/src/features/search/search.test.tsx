@@ -155,6 +155,31 @@ describe("search box", () => {
     expect(await screen.findByText("Не удалось выполнить поиск")).toBeInTheDocument();
   });
 
+  it("offers a retry when the search fails, and the retry searches again", async () => {
+    let failOnce = true;
+    const calls = stubApp({
+      searchResults: { events: [LAUNCH], tasks: [] },
+      onRequest: (request) => {
+        if (request.method === "GET" && path(request) === SEARCH && failOnce) {
+          failOnce = false;
+          return apiError(500, "internal", "Ошибка");
+        }
+        return undefined;
+      },
+    });
+    renderSearch(<SearchBox />);
+
+    const user = userEvent.setup();
+    await user.type(input(), "ужин");
+    expect(await screen.findByText("Не удалось выполнить поиск")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Повторить" }));
+
+    expect(await screen.findByRole("button", { name: /Ужин вдвоём/ })).toBeInTheDocument();
+    expect(screen.queryByText("Не удалось выполнить поиск")).not.toBeInTheDocument();
+    expect(requestsTo(calls, "GET", SEARCH)).toHaveLength(2);
+  });
+
   it("opens the event in the URL, clears the text and closes the results when it is chosen", async () => {
     stubApp({ searchResults: { events: [LAUNCH], tasks: [] } });
     renderSearch(<SearchBox />);

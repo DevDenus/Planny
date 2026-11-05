@@ -2,6 +2,9 @@ import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-q
 
 import { api, unwrap } from "../../api/client";
 import { NOTIFICATIONS_KEY, SYNC_KEY } from "../../api/queryClient";
+import { useToast } from "../../ui";
+
+const READ_FAILED = "Не удалось отметить уведомления";
 
 export function useNotifications(enabled: boolean) {
   return useInfiniteQuery({
@@ -25,6 +28,7 @@ function useRefreshAfterRead() {
 
 export function useReadNotification() {
   const onSuccess = useRefreshAfterRead();
+  const toast = useToast();
   return useMutation({
     mutationFn: (id: string) =>
       unwrap(
@@ -33,13 +37,16 @@ export function useReadNotification() {
         }),
       ),
     onSuccess,
+    onError: () => toast.show(READ_FAILED, "error"),
   });
 }
 
 export function useReadAllNotifications() {
   const onSuccess = useRefreshAfterRead();
+  const toast = useToast();
   return useMutation({
     mutationFn: () => unwrap(api.POST("/api/v1/notifications/read-all")),
     onSuccess,
+    onError: () => toast.show(READ_FAILED, "error"),
   });
 }

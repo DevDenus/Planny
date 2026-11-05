@@ -28,7 +28,7 @@ __all__ = [
 
 
 async def create_schema() -> None:
-    engine = create_async_engine(get_settings().database_url)
+    engine = create_async_engine(get_settings().database_url, hide_parameters=True)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     await engine.dispose()

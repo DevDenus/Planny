@@ -7,10 +7,12 @@ import {
   Button,
   Dialog,
   IconButton,
+  LoadError,
   Panel,
   SelectField,
   Skeleton,
   TextField,
+  useFocusInvalid,
 } from "../../ui";
 import {
   useCategories,
@@ -114,6 +116,7 @@ function NewCategoryForm({ categories }: { categories: Category[] }) {
   const [blank, setBlank] = useState(false);
   const serverNameError = create.error instanceof ApiError ? create.error.fields.name : undefined;
   const nameError = blank ? "Введите название" : serverNameError;
+  const form = useFocusInvalid(nameError);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -124,7 +127,7 @@ function NewCategoryForm({ categories }: { categories: Category[] }) {
   };
 
   return (
-    <form className={styles.form} onSubmit={submit} noValidate>
+    <form ref={form} className={styles.form} onSubmit={submit} noValidate>
       <TextField
         label="Новая категория"
         value={name}
@@ -161,12 +164,7 @@ export function CategoriesSection() {
       <h2 className={styles.heading}>Категории</h2>
       {isPending && <Skeleton height={52} />}
       {isError && (
-        <div className={styles.failure}>
-          <Banner tone="error">Не удалось загрузить категории</Banner>
-          <Button variant="secondary" onClick={() => void refetch()}>
-            Повторить
-          </Button>
-        </div>
+        <LoadError message="Не удалось загрузить категории" onRetry={() => void refetch()} />
       )}
       {data && (
         <>

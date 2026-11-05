@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import type { Board } from "../../api/client";
-import { Avatar, Banner, Button, EmptyState, Panel, Skeleton, Switch } from "../../ui";
+import { Avatar, Button, EmptyState, LoadError, Panel, Skeleton, Switch } from "../../ui";
 import { useCurrentUser } from "../auth/session";
 import { BoardDialog } from "./BoardDialog";
 import { openTasksLabel } from "./BoardCatalog";
@@ -76,15 +76,21 @@ export function BoardsPage() {
 
       {isPending && <Skeleton height={68} />}
       {isError && (
-        <Panel className={styles.error}>
-          <Banner tone="error">Не удалось загрузить доски</Banner>
-          <Button variant="secondary" onClick={() => void refetch()}>
-            Повторить
-          </Button>
+        <Panel>
+          <LoadError message="Не удалось загрузить доски" onRetry={() => void refetch()} />
         </Panel>
       )}
       {boards?.length === 0 && (
-        <EmptyState title={archived ? "В архиве пусто" : "Досок нет"}>
+        <EmptyState
+          title={archived ? "В архиве пусто" : "Досок нет"}
+          action={
+            !archived && (
+              <Button variant="secondary" onClick={() => setCreating(true)}>
+                Новая доска
+              </Button>
+            )
+          }
+        >
           {archived && <Archive size={20} aria-hidden="true" />}
         </EmptyState>
       )}

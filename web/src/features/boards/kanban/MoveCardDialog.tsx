@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 
 import type { TaskSummary } from "../../../api/client";
-import { Banner, Button, Dialog, SelectField } from "../../../ui";
+import { Banner, Button, Dialog, LoadError, SelectField } from "../../../ui";
 import { useMoveCard, useTaskList } from "../../tasks/api";
 import { useBoards, useColumns } from "../api";
 
@@ -19,7 +19,7 @@ export function MoveCardDialog({ task, onClose }: MoveCardDialogProps) {
   const [boardId, setBoardId] = useState(task.board_id);
   const [chosenColumn, setChosenColumn] = useState(task.column_id);
   const [place, setPlace] = useState(END);
-  const { data: columns } = useColumns(boardId);
+  const { data: columns, isError: columnsFailed, refetch: refetchColumns } = useColumns(boardId);
   const moveCard = useMoveCard();
 
   const column =
@@ -62,6 +62,9 @@ export function MoveCardDialog({ task, onClose }: MoveCardDialogProps) {
       }
     >
       <form id="move-card-form" onSubmit={submit} noValidate>
+        {columnsFailed && !columns && (
+          <LoadError message="Не удалось загрузить колонки" onRetry={() => void refetchColumns()} />
+        )}
         <SelectField
           label="Доска"
           value={boardId}

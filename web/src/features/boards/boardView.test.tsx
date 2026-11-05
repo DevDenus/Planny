@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,11 +7,14 @@ import { BOARDS_KEY } from "../../api/queryClient";
 import { holdUpdates, releaseUpdates, whenReleased } from "../sync/hold";
 import {
   API,
+  bodyOf,
+  json,
   makeBoard,
   makeColumn,
   makeDeadline,
   makeLabel,
   makeTask,
+  path,
   renderApp,
   requestsTo,
   searchOf,
@@ -135,6 +138,47 @@ describe("board view", () => {
       "aria-checked",
       "true",
     );
+  });
+});
+
+/** The panel of one column in the list, found from its heading. */
+function panelOf(title: string): HTMLElement {
+  return screen.getByRole("heading", { name: title }).closest("button")!.parentElement!;
+}
+
+describe("new task from a column of the list", () => {
+  it("creates the task in the empty column whose button was pressed", async () => {
+    const board = makeBoard({ name: "Семья", default_view: "list" });
+    const todo = makeColumn({ name: "К выполнению", task_count: 1 });
+    const doing = makeColumn({ name: "В работе" });
+    const task = makeTask({ board_id: board.id, column_id: todo.id, title: "Купить хлеб" });
+    const calls = stubApp({
+      boards: [board],
+      columns: [todo, doing],
+      tasks: [task],
+      onRequest: (request) =>
+        request.method === "POST" && path(request) === TASKS ? json(201, makeTask()) : undefined,
+    });
+    renderApp(`/boards/${board.id}`);
+
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "В работе" });
+    await user.click(
+      await within(panelOf("В работе")).findByRole("button", { name: "Новая задача" }),
+    );
+
+    await screen.findByRole("textbox", { name: "Название" });
+    const dialog = screen.getByRole("dialog", { name: "Новая задача" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Название" }), "Полить цветы");
+    expect(within(dialog).getByLabelText("Колонка")).toHaveValue(doing.id);
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() => expect(requestsTo(calls, "POST", TASKS)).toHaveLength(1));
+    expect(await bodyOf(requestsTo(calls, "POST", TASKS)[0]!)).toMatchObject({
+      board_id: board.id,
+      column_id: doing.id,
+      title: "Полить цветы",
+    });
   });
 });
 

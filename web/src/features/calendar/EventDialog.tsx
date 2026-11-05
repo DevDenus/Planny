@@ -1,7 +1,7 @@
 import { ApiError } from "../../api/client";
-import { Banner, Dialog, EmptyState, Skeleton } from "../../ui";
+import { Dialog, EmptyState, LoadError, Skeleton } from "../../ui";
 import { useCurrentUser } from "../auth/session";
-import { failureMessage } from "../tasks/api";
+import { failureMessage, useTask } from "../tasks/api";
 import { localDate } from "../tasks/dates";
 import { useEvent } from "./api";
 import { NEW_EVENT, useEventParam } from "./eventLinks";
@@ -20,7 +20,7 @@ function ExistingEvent({
   onClose: () => void;
 }) {
   const { data: user } = useCurrentUser();
-  const { data: event, error, isPending } = useEvent(id);
+  const { data: event, error, isPending, refetch } = useEvent(id);
   // A failed refetch keeps the last data next to its error, so the 404 is read from the error.
   const gone = error instanceof ApiError && error.status === 404;
 
@@ -47,16 +47,51 @@ function ExistingEvent({
       ) : gone ? (
         <EmptyState title="Объект больше не существует" />
       ) : (
-        <Banner tone="error">{failureMessage(error)}</Banner>
+        <LoadError message={failureMessage(error)} onRetry={() => void refetch()} />
       )}
     </Dialog>
   );
 }
 
+type NewEventDialogProps = {
+  day?: string;
+  time?: string;
+  /** The task the event is planned for: its title comes from the server, for this user. */
+  taskId?: string;
+  onClose: () => void;
+};
+
+function NewEventDialog({ day, time, taskId, onClose }: NewEventDialogProps) {
+  const { data: user } = useCurrentUser();
+  const { data: task, error, isPending, refetch } = useTask(taskId);
+
+  if (!user) return null;
+  if (taskId && !task) {
+    return (
+      <Dialog title="Новое событие" width={640} onClose={onClose}>
+        {isPending ? (
+          <Skeleton height={240} />
+        ) : error instanceof ApiError && error.status === 404 ? (
+          <EmptyState title="Объект больше не существует" />
+        ) : (
+          <LoadError message={failureMessage(error)} onRetry={() => void refetch()} />
+        )}
+      </Dialog>
+    );
+  }
+  return (
+    <EventForm
+      initial={newDraft(user.id, day ?? localDate(new Date(), user.timezone), time, task?.title)}
+      taskId={taskId}
+      timeZone={user.timezone}
+      onClose={onClose}
+    />
+  );
+}
+
 /** Mounted once in the shell, so an event opens over whatever screen is underneath. */
 export function EventDialogHost() {
-  const { data: user } = useCurrentUser();
-  const { event, editing, occurrence, start, taskId, title, close } = useEventParam();
+  const { event, editing, occurrence, start, taskId, close } = useEventParam();
   if (!event) return null;
   if (event !== NEW_EVENT) {
     return (
@@ -69,18 +104,5 @@ export function EventDialogHost() {
       />
     );
   }
-  if (!user) return null;
-  return (
-    <EventForm
-      initial={newDraft(
-        user.id,
-        start.day ?? localDate(new Date(), user.timezone),
-        start.time,
-        title,
-      )}
-      taskId={taskId}
-      timeZone={user.timezone}
-      onClose={close}
-    />
-  );
+  return <NewEventDialog day={start.day} time={start.time} taskId={taskId} onClose={close} />;
 }

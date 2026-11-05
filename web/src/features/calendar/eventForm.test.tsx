@@ -10,6 +10,7 @@ import {
   bodyOf,
   json,
   makeEvent,
+  makeTask,
   path,
   renderApp,
   requestsTo,
@@ -68,6 +69,77 @@ describe("an event deleted in the background", () => {
     expect(form.getByLabelText("Название")).toHaveValue("Поздний ужин");
   });
 
+  it("creates the event again from what was typed", async () => {
+    const events = [makeEvent({ title: "Ужин" })];
+    const calls = stubApp({
+      events,
+      onRequest: (request) =>
+        request.method === "POST" && path(request) === EVENTS
+          ? json(201, makeEvent({ id: "e2", title: "Поздний ужин" }))
+          : undefined,
+    });
+    const user = userEvent.setup();
+    const { client } = renderApp(`${DAY}&event=e1&edit=1`);
+
+    const form = within(await screen.findByRole("dialog", { name: "Изменить событие" }));
+    await user.clear(form.getByLabelText("Название"));
+    await user.type(form.getByLabelText("Название"), "Поздний ужин");
+    events.length = 0;
+    await act(() => client.invalidateQueries({ queryKey: CALENDAR_KEY }));
+    await user.click(await form.findByRole("button", { name: "Создать заново" }));
+
+    await waitFor(() => expect(requestsTo(calls, "POST", EVENTS)).toHaveLength(1));
+    const [sent] = requestsTo(calls, "POST", EVENTS);
+    expect(await bodyOf(sent!)).toMatchObject({ title: "Поздний ужин" });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Изменить событие" })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("keeps the zone of a series it creates again", async () => {
+    const events = [
+      makeEvent({
+        title: "Созвон",
+        timezone: "Asia/Tokyo",
+        start_at: "2026-11-30T16:00:00Z",
+        end_at: "2026-11-30T17:00:00Z",
+        recurrence: { freq: "monthly", until: null, count: null },
+      }),
+    ];
+    const calls = stubApp({
+      events,
+      onRequest: answering("POST", EVENTS, () => json(201, makeEvent({ id: "e2" }))),
+    });
+    const user = userEvent.setup();
+    const { client } = renderApp(`${DAY}&event=e1&edit=1`);
+
+    const form = within(await screen.findByRole("dialog", { name: "Изменить событие" }));
+    events.length = 0;
+    await act(() => client.invalidateQueries({ queryKey: CALENDAR_KEY }));
+    await user.click(await form.findByRole("button", { name: "Создать заново" }));
+
+    await waitFor(() => expect(requestsTo(calls, "POST", EVENTS)).toHaveLength(1));
+    const [sent] = requestsTo(calls, "POST", EVENTS);
+    expect(await bodyOf(sent!)).toMatchObject({
+      timezone: "Asia/Tokyo",
+      start_at: "2026-11-30T16:00:00Z",
+      recurrence: { freq: "monthly" },
+    });
+  });
+
+  it("puts the focus on the first refused field", async () => {
+    stubApp({ events: [makeEvent({ title: "Ужин" })] });
+    const user = userEvent.setup();
+    renderApp(`${DAY}&event=e1&edit=1`);
+
+    const form = within(await screen.findByRole("dialog", { name: "Изменить событие" }));
+    await user.clear(form.getByLabelText("Название"));
+    await user.click(form.getByRole("button", { name: "Сохранить" }));
+
+    expect(await form.findByText("Введите название")).toBeInTheDocument();
+    expect(form.getByLabelText("Название")).toHaveFocus();
+  });
+
   it("shows the text once when a save finds the event gone too", async () => {
     const events = [makeEvent({ title: "Ужин" })];
     // The save waits until the test lets it fail, so the banners are read once it has failed.
@@ -103,9 +175,36 @@ describe("an event deleted in the background", () => {
   });
 });
 
+describe("an event planned for a task", () => {
+  it("takes the title from the task and nothing from the address", async () => {
+    stubApp({ tasks: [makeTask({ id: "t1", title: "Записаться к врачу" })] });
+    renderApp(`${DAY}&event=new&for_task=t1&event_title=Чужое`);
+
+    // The dialog of the loading state is replaced by the form's own.
+    expect(await screen.findByRole("textbox", { name: "Название" })).toHaveValue(
+      "Записаться к врачу",
+    );
+  });
+
+  it("shows nothing of a task this user can't read", async () => {
+    const calls = stubApp({
+      onRequest: answering("GET", `${API}/tasks/t1`, () =>
+        apiError(404, "not_found", "Не найдено"),
+      ),
+    });
+    renderApp(`${DAY}&event=new&for_task=t1&event_title=Чужое`);
+
+    const form = within(await screen.findByRole("dialog", { name: "Новое событие" }));
+    expect(await form.findByText("Объект больше не существует")).toBeInTheDocument();
+    expect(form.queryByLabelText("Название")).not.toBeInTheDocument();
+    expect(requestsTo(calls, "GET", `${API}/tasks/t1`).length).toBeGreaterThan(0);
+  });
+});
+
 describe("a link to a task that fails after the event is created", () => {
   it("closes the form, says the event exists, and posts the event once", async () => {
     const calls = stubApp({
+      tasks: [makeTask({ id: "t1" })],
       onRequest: (request) =>
         answering("POST", EVENTS, () => json(201, makeEvent({ id: "new" })))(request) ??
         answering("POST", TASK_LINKS, () => apiError(404, "not_found", "Не найдено"))(request),
@@ -113,9 +212,8 @@ describe("a link to a task that fails after the event is created", () => {
     const user = userEvent.setup();
     renderApp(`${DAY}&event=new&for_task=t1`);
 
-    const form = within(await screen.findByRole("dialog", { name: "Новое событие" }));
-    await user.type(form.getByLabelText("Название"), "Ужин");
-    await user.click(form.getByRole("button", { name: "Создать" }));
+    await user.type(await screen.findByRole("textbox", { name: "Название" }), "Ужин");
+    await user.click(screen.getByRole("button", { name: "Создать" }));
 
     expect(
       await screen.findByText("Событие создано, но связать с задачей не удалось"),

@@ -18,6 +18,7 @@ import {
   Switch,
   TextArea,
   TextField,
+  useFocusInvalid,
   useToast,
 } from "../../ui";
 import { useCurrentUser } from "../auth/session";
@@ -47,8 +48,6 @@ const NO_CATEGORY = "";
 /** What the time fields hold after "all day" is switched off on an event that had no time. */
 const DEFAULT_START = "09:00";
 const DEFAULT_END = "10:00";
-/** The event was deleted while the form was open. */
-const GONE = "Событие удалили, пока вы его редактировали";
 /** The first day of the month that some months don't have. */
 const FIRST_SKIPPED_DAY = 29;
 
@@ -199,14 +198,20 @@ function changes(
   };
 }
 
-function createBody(draft: EventDraft, timeZone: string, id: string): EventCreate {
+/** The draft reads in the viewer's zone, `eventZone` is the one the series repeats by. */
+function createBody(
+  draft: EventDraft,
+  timeZone: string,
+  id: string,
+  eventZone = timeZone,
+): EventCreate {
   return {
     id,
     title: draft.title.trim(),
     description: draft.description.trim() || null,
     location: draft.location.trim() || null,
     ...eventTime(draft, timeZone),
-    timezone: timeZone,
+    timezone: eventZone,
     recurrence: recurrence(draft),
     participant_ids: draft.participantIds,
     category_id: draft.categoryId || null,
@@ -296,6 +301,8 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
   const [failure, setFailure] = useState<string>();
   const [conflict, setConflict] = useState<CalendarEvent | null>(null);
   const [saving, setSaving] = useState(false);
+  const [removed, setRemoved] = useState(false);
+  const form = useFocusInvalid(errors);
 
   const set = (change: Partial<EventDraft>) => {
     setDraft((current) => ({ ...current, ...change }));
@@ -320,7 +327,7 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
     if (error instanceof ApiError && error.code === "version_conflict") {
       setConflict((error.details as { current: CalendarEvent }).current);
     } else if (error instanceof ApiError && error.status === 404) {
-      setFailure(GONE);
+      setRemoved(true);
     } else if (error instanceof ApiError && Object.keys(error.fields).length > 0) {
       const { title, start_at, start_date, end_at, end_date, recurrence: until } = error.fields;
       const known = { title, start: start_at ?? start_date, end: end_at ?? end_date, until };
@@ -359,6 +366,22 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
     }
   };
 
+  const recreate = async () => {
+    const found = validate(draft);
+    setErrors(found);
+    if (Object.keys(found).length > 0) return;
+    setFailure(undefined);
+    setSaving(true);
+    try {
+      await create.mutateAsync(createBody(draft, timeZone, newId, event?.timezone));
+      onClose();
+    } catch (error) {
+      fail(error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const submit = (formEvent: FormEvent) => {
     formEvent.preventDefault();
     const found = validate(draft, event ? base : undefined);
@@ -384,9 +407,16 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
       onClose={onClose}
       footer={footer}
     >
-      <form id="event-form" className={styles.form} onSubmit={submit} noValidate>
-        {gone && failure !== GONE && <Banner tone="error">{GONE}</Banner>}
+      <form id="event-form" ref={form} className={styles.form} onSubmit={submit} noValidate>
         {failure && <Banner tone="error">{failure}</Banner>}
+        {(gone || removed) && (
+          <Banner tone="warning">
+            <p>Событие удалили, пока вы его редактировали</p>
+            <Button variant="secondary" loading={saving} onClick={() => void recreate()}>
+              Создать заново
+            </Button>
+          </Banner>
+        )}
         <TextField
           label="Название"
           value={draft.title}

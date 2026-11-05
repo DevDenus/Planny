@@ -12,18 +12,23 @@ import { dayTitle } from "./period";
 export type DayPanelProps = {
   day: string;
   items: CalendarItem[];
+  /** Until the items are in, no items does not mean an empty day. */
+  loaded: boolean;
   colors: Map<string, CategoryColor>;
   timeZone: string;
   /** The calendar of a board has no events, and nothing is created from it. */
   tasksOnly?: boolean;
 };
 
-export function DayPanel({ day, items, colors, timeZone, tasksOnly }: DayPanelProps) {
+export function DayPanel({ day, items, loaded, colors, timeZone, tasksOnly }: DayPanelProps) {
   const { create } = useEventParam();
   const { events, tasks } = itemsOfDay(items, day, timeZone);
   return (
     <Panel className={styles.panel}>
       <h2 className={styles.title}>{dayTitle(day)}</h2>
+      {loaded && events.length === 0 && tasks.length === 0 && (
+        <p className={styles.empty}>На этот день ничего нет</p>
+      )}
       {!tasksOnly && (
         <section className={styles.section}>
           <h3 className={styles.heading}>

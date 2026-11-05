@@ -2,7 +2,7 @@ import { Plus } from "lucide-react";
 import { Fragment, useState } from "react";
 
 import type { Board, BoardColumn, TaskFilters } from "../../../api/client";
-import { Banner, Button, Menu, Skeleton, cx, type MenuProps } from "../../../ui";
+import { Button, LoadError, Menu, Skeleton, cx, useToast, type MenuProps } from "../../../ui";
 import { useTaskList } from "../../tasks/api";
 import { QuickAdd } from "../../tasks/QuickAdd";
 import { useMoveColumn, useUpdateColumn } from "../api";
@@ -14,7 +14,7 @@ import { KanbanCard } from "./KanbanCard";
 
 const PAGE_SIZE = 100;
 
-export function CardDropLine() {
+function CardDropLine() {
   return <li className={styles.line} data-drop-line aria-hidden="true" />;
 }
 
@@ -30,6 +30,7 @@ type Dialog = "rename" | "done" | "delete";
 function ColumnMenu({ board, column, columns, onDialog }: ColumnMenuProps) {
   const move = useMoveColumn(board.id);
   const update = useUpdateColumn(board.id);
+  const toast = useToast();
   const index = columns.findIndex((item) => item.id === column.id);
   const onlyOfKind = !columns.some(
     (item) => item.id !== column.id && item.is_done === column.is_done,
@@ -46,8 +47,14 @@ function ColumnMenu({ board, column, columns, onDialog }: ColumnMenuProps) {
       hint: onlyOfKind ? kindHint : undefined,
       onSelect: () => {
         // With nothing on the column there is nobody to warn about.
-        if (column.task_count > 0) onDialog("done");
-        else update.mutate({ columnId: column.id, body: { is_done: !column.is_done } });
+        if (column.task_count > 0) {
+          onDialog("done");
+          return;
+        }
+        update.mutate(
+          { columnId: column.id, body: { is_done: !column.is_done } },
+          { onError: () => toast.show("Не удалось изменить колонку", "error") },
+        );
       },
     },
     {
@@ -149,11 +156,8 @@ export function KanbanColumn({
           </li>
         )}
         {isError && (
-          <li className={styles.columnError}>
-            <Banner tone="error">Не удалось загрузить задачи</Banner>
-            <Button variant="secondary" onClick={() => void refetch()}>
-              Повторить
-            </Button>
+          <li>
+            <LoadError message="Не удалось загрузить задачи" onRetry={() => void refetch()} />
           </li>
         )}
         {!isPending && !isError && tasks.length === 0 && (

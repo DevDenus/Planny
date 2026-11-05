@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 
 import { ApiError, type BoardColumn } from "../../../api/client";
-import { Banner, Button, Dialog, SelectField, TextField } from "../../../ui";
+import { Banner, Button, Dialog, SelectField, TextField, useFocusInvalid } from "../../../ui";
 import { failureMessage } from "../../tasks/api";
 import { pluralize } from "../../tasks/labels";
 import { useCreateColumn, useDeleteColumn, useUpdateColumn } from "../api";
@@ -24,6 +24,7 @@ type NameDialogProps = {
 function NameDialog({ title, initial, saving, failure, onSubmit, onClose }: NameDialogProps) {
   const [name, setName] = useState(initial);
   const [error, setError] = useState<string>();
+  const form = useFocusInvalid(error);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -47,7 +48,7 @@ function NameDialog({ title, initial, saving, failure, onSubmit, onClose }: Name
         </>
       }
     >
-      <form id="column-name-form" onSubmit={submit} noValidate>
+      <form id="column-name-form" ref={form} onSubmit={submit} noValidate>
         {failure && <Banner tone="error">{failure}</Banner>}
         <TextField
           label="Название"

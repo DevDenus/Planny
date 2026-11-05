@@ -6,11 +6,11 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 
 from app.tasks import repository
 from app.tasks.models import BoardColumn
-from tests.helpers import add_member, columns, create_task, signed_in
+from tests.helpers import add_member, columns, create_task, personal_board, signed_in
 from tests.test_task_move import history, move, titles_in
 
 Headers = dict[str, str]
@@ -253,3 +253,228 @@ async def test_a_card_can_not_keep_an_assignee_removed_at_the_same_moment(
         assert removed.status_code == 204, removed.text
         fresh = (await client.get(f"tasks/{task['id']}", headers=headers)).json()
         assert fresh["assignees"] == []
+
+
+# A move together with changes: one transaction.
+
+
+async def move_with(
+    client: AsyncClient,
+    headers: Headers,
+    task: dict[str, Any],
+    column_id: str,
+    version: int | None = None,
+    **changes: Any,
+) -> Response:
+    return await client.post(
+        f"tasks/{task['id']}/move",
+        json={
+            "column_id": column_id,
+            "after_id": None,
+            "changes": {"version": task["version"] if version is None else version, **changes},
+        },
+        headers=headers,
+    )
+
+
+async def unread_titles(client: AsyncClient, headers: Headers) -> list[tuple[str, str]]:
+    response = await client.get("notifications", headers=headers)
+    assert response.status_code == 200, response.text
+    return [(item["kind"], item["title"]) for item in response.json()["items"]]
+
+
+async def test_changes_arrive_with_the_card(client: AsyncClient) -> None:
+    _, headers = await signed_in(client, "sasha")
+    helper, _ = await signed_in(client, "zhenya")
+    home = await new_board(client, headers, "Дом")
+    work = await new_board(client, headers, "Работа")
+    await add_member(client, headers, work["id"], helper.id)
+    label = await add_label(client, headers, work["id"])
+    task = await create_task(client, headers, board_id=home["id"], title="старое")
+    target, _ = await columns(client, headers, work["id"])
+
+    response = await move_with(
+        client,
+        headers,
+        task,
+        target["id"],
+        title="новое",
+        assignee_ids=[str(helper.id)],
+        label_ids=[label["id"]],
+    )
+
+    assert response.status_code == 200, response.text
+    moved = response.json()
+    assert moved["board_id"] == work["id"]
+    assert moved["title"] == "новое"
+    assert [user["id"] for user in moved["assignees"]] == [str(helper.id)]
+    assert [item["id"] for item in moved["labels"]] == [label["id"]]
+    assert moved["version"] == task["version"] + 1
+    kinds = [kind for kind, _ in await history(task["id"])]
+    assert kinds[-4:] == ["moved", "updated", "assigned", "labeled"]
+
+
+async def test_the_new_title_reaches_only_those_who_stay_on_the_card(client: AsyncClient) -> None:
+    _, headers = await signed_in(client, "sasha")
+    stays, stays_headers = await signed_in(client, "zhenya")
+    left, left_headers = await signed_in(client, "boris")
+    home = await new_board(client, headers, "Дом")
+    work = await new_board(client, headers, "Работа")
+    await add_member(client, headers, home["id"], stays.id)
+    await add_member(client, headers, home["id"], left.id)
+    await add_member(client, headers, work["id"], stays.id)
+    task = await create_task(
+        client,
+        headers,
+        board_id=home["id"],
+        title="старое",
+        assignee_ids=[str(stays.id), str(left.id)],
+    )
+    target, _ = await columns(client, headers, work["id"])
+
+    response = await move_with(client, headers, task, target["id"], title="секретное новое")
+
+    assert response.status_code == 200, response.text
+    assert ("task_updated", "секретное новое") in await unread_titles(client, stays_headers)
+    assert "секретное новое" not in [
+        title for _, title in await unread_titles(client, left_headers)
+    ]
+
+
+async def test_a_stale_version_stops_the_move(client: AsyncClient) -> None:
+    _, headers = await signed_in(client, "sasha")
+    home = await new_board(client, headers, "Дом")
+    work = await new_board(client, headers, "Работа")
+    task = await create_task(client, headers, board_id=home["id"], title="старое")
+    target, _ = await columns(client, headers, work["id"])
+
+    response = await move_with(
+        client, headers, task, target["id"], version=task["version"] + 1, title="новое"
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "version_conflict"
+    current = (await client.get(f"tasks/{task['id']}", headers=headers)).json()
+    assert (current["board_id"], current["title"]) == (home["id"], "старое")
+
+
+@pytest.mark.parametrize("field", ["assignee_ids", "label_ids", "start_date"])
+async def test_a_refused_change_leaves_the_card_where_it_was(
+    client: AsyncClient, field: str
+) -> None:
+    _, headers = await signed_in(client, "sasha")
+    stranger, _ = await signed_in(client, "boris")
+    home = await new_board(client, headers, "Дом")
+    work = await new_board(client, headers, "Работа")
+    await add_member(client, headers, home["id"], stranger.id)
+    foreign = await add_label(client, headers, home["id"])
+    task = await create_task(
+        client, headers, board_id=home["id"], title="старое", due_date="2027-01-01"
+    )
+    target, _ = await columns(client, headers, work["id"])
+    refused: dict[str, Any] = {
+        "assignee_ids": [str(stranger.id)],
+        "label_ids": [foreign["id"]],
+        "start_date": "2027-02-01",
+    }
+
+    response = await move_with(
+        client, headers, task, target["id"], title="новое", **{field: refused[field]}
+    )
+
+    assert response.status_code == 422
+    assert field in response.json()["error"]["details"]["fields"]
+    current = (await client.get(f"tasks/{task['id']}", headers=headers)).json()
+    assert (current["board_id"], current["title"]) == (home["id"], "старое")
+    assert current["version"] == task["version"]
+
+
+async def test_changes_go_with_a_move_inside_the_board(client: AsyncClient) -> None:
+    _, headers = await signed_in(client, "sasha")
+    board = await personal_board(client, headers)
+    task = await create_task(client, headers, board_id=board["id"], title="старое")
+    _, done = await columns(client, headers, board["id"])
+
+    response = await move_with(client, headers, task, done["id"], title="новое")
+
+    assert response.status_code == 200, response.text
+    moved = response.json()
+    assert (moved["title"], moved["column_id"]) == ("новое", done["id"])
+    assert moved["completed_at"] is not None
+
+
+async def test_a_reminder_alone_needs_no_version(client: AsyncClient) -> None:
+    _, headers = await signed_in(client, "sasha")
+    home = await new_board(client, headers, "Дом")
+    work = await new_board(client, headers, "Работа")
+    task = await create_task(client, headers, board_id=home["id"])
+    target, _ = await columns(client, headers, work["id"])
+
+    response = await move_with(
+        client,
+        headers,
+        task,
+        target["id"],
+        version=task["version"] + 1,
+        reminder_at="2027-01-01T09:00:00Z",
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["reminder_at"] == "2027-01-01T09:00:00Z"
+
+
+async def test_changes_without_a_new_place_are_saved(client: AsyncClient) -> None:
+    _, headers = await signed_in(client, "sasha")
+    board = await personal_board(client, headers)
+    task = await create_task(client, headers, board_id=board["id"], title="старое")
+
+    response = await move_with(client, headers, task, task["column_id"], title="новое")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["title"] == "новое"
+    assert response.json()["version"] == task["version"] + 1
+
+
+async def test_an_anchor_on_the_card_itself_still_takes_it_to_another_board(
+    client: AsyncClient,
+) -> None:
+    _, headers = await signed_in(client, "sasha")
+    left, left_headers = await signed_in(client, "boris")
+    home = await new_board(client, headers, "Дом")
+    work = await new_board(client, headers, "Работа")
+    await add_member(client, headers, home["id"], left.id)
+    task = await create_task(
+        client, headers, board_id=home["id"], title="старое", assignee_ids=[str(left.id)]
+    )
+    target, _ = await columns(client, headers, work["id"])
+
+    response = await client.post(
+        f"tasks/{task['id']}/move",
+        json={
+            "column_id": target["id"],
+            "after_id": task["id"],
+            "changes": {"version": task["version"], "title": "секретное новое"},
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    moved = response.json()
+    assert (moved["board_id"], moved["board_name"]) == (work["id"], "Работа")
+    assert moved["title"] == "секретное новое"
+    assert "секретное новое" not in [
+        title for _, title in await unread_titles(client, left_headers)
+    ]
+
+
+async def test_an_anchor_on_the_card_itself_keeps_its_place_in_the_column(
+    client: AsyncClient,
+) -> None:
+    _, headers = await signed_in(client, "sasha")
+    board = await personal_board(client, headers)
+    first = await create_task(client, headers, board_id=board["id"], title="первая")
+    await create_task(client, headers, board_id=board["id"], title="вторая")
+
+    moved = await move(client, headers, first, first["column_id"], first["id"])
+
+    assert moved["position"] == first["position"]

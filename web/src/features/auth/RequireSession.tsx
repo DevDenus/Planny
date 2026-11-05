@@ -2,16 +2,19 @@ import { Navigate, Outlet, useLocation } from "react-router";
 
 import { Banner, Button, Spinner } from "../../ui";
 import { FullScreen } from "./AuthLayout";
+import type { LoginState } from "./LoginPage";
 import { useSession } from "./session";
 
 const CHANGE_PASSWORD_PATH = "/change-password";
 
 export function RequireSession() {
   const location = useLocation();
-  const { user, signedOut, isPending, refetch } = useSession();
+  const { user, signedOut, expired, isPending, refetch } = useSession();
 
   if (signedOut) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    // The search part holds the open dialog, so the task or event comes back after the login.
+    const from = location.pathname + location.search;
+    return <Navigate to="/login" replace state={{ from, expired } satisfies LoginState} />;
   }
   if (isPending) {
     return (

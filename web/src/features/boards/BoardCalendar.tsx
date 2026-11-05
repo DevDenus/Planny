@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import type { Board, CalendarItem, TaskFilters } from "../../api/client";
-import { Banner } from "../../ui";
+import { LoadError } from "../../ui";
 import { useCalendarItems } from "../calendar/api";
 import { CalendarGrid } from "../calendar/CalendarGrid";
 import { CompactMonth } from "../calendar/CompactMonth";
@@ -33,7 +33,7 @@ export function BoardCalendar({ board, filters, now, timeZone }: BoardCalendarPr
   const phone = useIsPhone();
   const { open } = useTaskParam();
   const { first, end } = viewRange("month", day);
-  const { data, isError } = useCalendarItems(
+  const { data, isError, isPlaceholderData, refetch } = useCalendarItems(
     {
       from: fromLocalInput(first, "00:00", timeZone),
       to: fromLocalInput(end, "00:00", timeZone),
@@ -42,11 +42,14 @@ export function BoardCalendar({ board, filters, now, timeZone }: BoardCalendarPr
     filters,
   );
   const items = useMemo<CalendarItem[]>(() => data ?? [], [data]);
+  const loaded = data !== undefined && !isError && !isPlaceholderData;
 
   return (
     <div className={styles.calendar}>
       <PeriodHeader view="month" day={day} today={today} onDay={setDay} />
-      {isError && <Banner tone="error">Не удалось загрузить календарь</Banner>}
+      {isError && (
+        <LoadError message="Не удалось загрузить календарь" onRetry={() => void refetch()} />
+      )}
       {phone ? (
         <>
           <CompactMonth
@@ -57,7 +60,14 @@ export function BoardCalendar({ board, filters, now, timeZone }: BoardCalendarPr
             timeZone={timeZone}
             onSelectDay={setDay}
           />
-          <DayPanel day={day} items={items} colors={NO_COLORS} timeZone={timeZone} tasksOnly />
+          <DayPanel
+            day={day}
+            items={items}
+            loaded={loaded}
+            colors={NO_COLORS}
+            timeZone={timeZone}
+            tasksOnly
+          />
         </>
       ) : (
         <div className={styles.grid}>

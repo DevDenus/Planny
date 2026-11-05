@@ -2,7 +2,7 @@ import { ChevronRight } from "lucide-react";
 import { Link } from "react-router";
 
 import type { Board } from "../../api/client";
-import { Skeleton } from "../../ui";
+import { LoadError, Skeleton } from "../../ui";
 import { pluralize } from "../tasks/labels";
 import { BoardIcon } from "./BoardIcon";
 import styles from "./BoardCatalog.module.css";
@@ -11,8 +11,18 @@ export function openTasksLabel(count: number): string {
   return `${count} ${pluralize(count, "задача", "задачи", "задач")}`;
 }
 
+type BoardCatalogProps = {
+  boards: Board[] | undefined;
+  /** The boards did not load, so the catalog offers a retry instead of a skeleton. */
+  failed: boolean;
+  onRetry: () => void;
+};
+
 /** The block from the right panel of the tasks screen. */
-export function BoardCatalog({ boards }: { boards: Board[] | undefined }) {
+export function BoardCatalog({ boards, failed, onRetry }: BoardCatalogProps) {
+  if (!boards && failed) {
+    return <LoadError message="Не удалось загрузить доски" onRetry={onRetry} />;
+  }
   if (!boards) return <Skeleton height={60} />;
   return (
     <ul className={styles.list}>

@@ -946,11 +946,13 @@ describe("reminder", () => {
 });
 
 describe("moving to another board", () => {
-  it("saves the changed fields first, then moves the card to the first open column there", async () => {
+  /** A card with a label on the personal board, and a second board to send it to. */
+  function boardsWithCard() {
     const personal = makeBoard({ is_default: true, name: "Личная" });
     const family = makeBoard({ name: "Семья", is_shared: true, members: [USER_SUMMARY, ZHENYA] });
     const todo = makeColumn({ name: "К выполнению", position: "a" });
     const done = makeColumn({ name: "Готово", position: "b", is_done: true });
+    const arrival = makeColumn({ name: "Новые", position: "a" });
     const urgent = makeLabel({ name: "Срочно" });
     const task = makeTask({
       board_id: personal.id,
@@ -959,22 +961,23 @@ describe("moving to another board", () => {
       version: 4,
       labels: [urgent],
     });
+    const familyColumns: Stub = (request) =>
+      path(request) === `${BOARDS}/${family.id}/columns`
+        ? json(200, { items: [arrival] })
+        : undefined;
+    return { personal, family, todo, done, arrival, urgent, task, familyColumns };
+  }
+
+  it("sends the changes and the move in one request, to the first open column", async () => {
+    const { personal, family, todo, done, arrival, urgent, task, familyColumns } = boardsWithCard();
     const { calls } = openTask(task, {
       boards: [personal, family],
       columns: [todo, done],
       labels: [urgent],
-      onRequest: (request) => {
-        if (request.method === "PATCH") {
-          return json(200, makeTask({ ...task, title: "Купить батон", version: 5 }));
-        }
-        if (request.method === "POST" && path(request) === `${TASKS}/${task.id}/move`) {
-          return json(
-            200,
-            makeTask({ ...task, board_id: family.id, column_id: todo.id, labels: [], version: 6 }),
-          );
-        }
-        return undefined;
-      },
+      onRequest: (request) =>
+        request.method === "POST" && path(request) === `${TASKS}/${task.id}/move`
+          ? json(200, makeTask({ ...task, board_id: family.id, labels: [], version: 5 }))
+          : familyColumns(request),
     });
 
     const user = userEvent.setup();
@@ -990,17 +993,100 @@ describe("moving to another board", () => {
       ),
     ).toBeInTheDocument();
     // The columns of the new board load after the change, and the first open one is then listed.
-    await within(dialog).findByRole("option", { name: "К выполнению" });
+    await within(dialog).findByRole("option", { name: "Новые" });
     await user.click(within(dialog).getByRole("button", { name: "Сохранить" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    const patches = requestsTo(calls, "PATCH", `${TASKS}/${task.id}`);
     const moves = requestsTo(calls, "POST", `${TASKS}/${task.id}/move`);
-    expect(patches).toHaveLength(1);
+    expect(requestsTo(calls, "PATCH", `${TASKS}/${task.id}`)).toHaveLength(0);
     expect(moves).toHaveLength(1);
-    expect(await bodyOf(patches[0]!)).toEqual({ title: "Купить батон", version: 4 });
-    expect(await bodyOf(moves[0]!)).toEqual({ column_id: todo.id, after_id: null });
-    expect(calls.indexOf(patches[0]!)).toBeLessThan(calls.indexOf(moves[0]!));
+    expect(await bodyOf(moves[0]!)).toEqual({
+      column_id: arrival.id,
+      after_id: null,
+      changes: { title: "Купить батон", label_ids: [], version: 4 },
+    });
+  });
+
+  it("sends no changes with a move when only the column is new", async () => {
+    const { personal, todo, done, task: labeled } = boardsWithCard();
+    const task = { ...labeled, labels: [] };
+    const { calls } = openTask(task, {
+      boards: [personal],
+      columns: [todo, done],
+      onRequest: (request) =>
+        request.method === "POST" && path(request) === `${TASKS}/${task.id}/move`
+          ? json(200, makeTask({ ...task, column_id: done.id }))
+          : undefined,
+    });
+
+    const user = userEvent.setup();
+    const dialog = await formDialog("Задача");
+    await within(dialog).findByDisplayValue("Купить хлеб");
+    await within(dialog).findByRole("option", { name: "Готово" });
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Колонка" }), done.id);
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const [sent] = requestsTo(calls, "POST", `${TASKS}/${task.id}/move`);
+    expect(await bodyOf(sent!)).toEqual({ column_id: done.id, after_id: null });
+  });
+
+  it("shows the conflict when a move with changes finds a newer card", async () => {
+    const { personal, family, todo, done, urgent, task, familyColumns } = boardsWithCard();
+    openTask(task, {
+      boards: [personal, family],
+      columns: [todo, done],
+      labels: [urgent],
+      onRequest: (request) =>
+        request.method === "POST" && path(request) === `${TASKS}/${task.id}/move`
+          ? apiError(409, "version_conflict", "Конфликт", {
+              current: { ...task, version: 5 },
+              last_change: null,
+            })
+          : familyColumns(request),
+    });
+
+    const user = userEvent.setup();
+    const dialog = await formDialog("Задача");
+    await within(dialog).findByDisplayValue("Купить хлеб");
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Доска" }), family.id);
+    await within(dialog).findByRole("option", { name: "Новые" });
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "Объект изменился, пока вы его редактировали" }),
+    ).toBeInTheDocument();
+  });
+
+  it("offers a retry and doesn't save while the columns of the new board can't be loaded", async () => {
+    const { personal, family, todo, done, urgent, task } = boardsWithCard();
+    let broken = true;
+    openTask(task, {
+      boards: [personal, family],
+      columns: [todo, done],
+      labels: [urgent],
+      onRequest: (request) =>
+        broken && path(request) === `${BOARDS}/${family.id}/columns`
+          ? apiError(404, "not_found", "Не найдено")
+          : undefined,
+    });
+
+    const user = userEvent.setup();
+    const dialog = await formDialog("Задача");
+    await within(dialog).findByDisplayValue("Купить хлеб");
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Доска" }), family.id);
+
+    expect(
+      await within(dialog).findByText("Не удалось загрузить колонки доски"),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Сохранить" })).toBeDisabled();
+
+    broken = false;
+    await user.click(within(dialog).getByRole("button", { name: "Повторить" }));
+
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: "Сохранить" })).toBeEnabled(),
+    );
   });
 });
 

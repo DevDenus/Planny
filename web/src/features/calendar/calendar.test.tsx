@@ -92,6 +92,37 @@ describe("the calendar screen", () => {
     expect(screen.queryByRole("heading", { name: "Декабрь 2026" })).not.toBeInTheDocument();
   });
 
+  it("says so when the chosen day is empty", async () => {
+    stubApp({ events: [] });
+    renderApp(DAY);
+
+    expect(await screen.findByText("На этот день ничего нет")).toBeInTheDocument();
+  });
+
+  it("does not call the day empty when the calendar fails to load", async () => {
+    stubApp({
+      onRequest: answering("GET", ITEMS, () => apiError(500, "internal", "Ошибка сервера")),
+    });
+    renderApp(DAY);
+
+    expect(await screen.findByRole("button", { name: "Повторить" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Пт, 6 ноября" })).toBeInTheDocument();
+    expect(screen.queryByText("На этот день ничего нет")).not.toBeInTheDocument();
+  });
+
+  it("does not call the day empty while the calendar is still loading", async () => {
+    stubApp({
+      onRequest: (request) =>
+        request.method === "GET" && path(request) === ITEMS
+          ? new Promise<Response>(() => {})
+          : undefined,
+    });
+    renderApp(DAY);
+
+    expect(await screen.findByRole("heading", { name: "Пт, 6 ноября" })).toBeInTheDocument();
+    expect(screen.queryByText("На этот день ничего нет")).not.toBeInTheDocument();
+  });
+
   it("lists the events and tasks of the chosen day in the panel", async () => {
     stubApp({
       categories: [makeCategory({ id: "c1" })],

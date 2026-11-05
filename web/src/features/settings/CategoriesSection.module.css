@@ -53,13 +53,6 @@
   border-radius: var(--space-1);
 }
 
-.failure {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-3);
-}
-
 .form {
   display: flex;
   flex-direction: column;

@@ -52,6 +52,18 @@ describe("boards list", () => {
     expect(screen.getByText("5 задач")).toBeInTheDocument();
   });
 
+  it("offers a new board from the empty list, which opens the board dialog", async () => {
+    stubApp({ boards: [] });
+    renderApp("/boards");
+
+    const user = userEvent.setup();
+    // The header has a button of the same name, so look for the one in the empty state.
+    const empty = (await screen.findByText("Досок нет")).parentElement!;
+    await user.click(within(empty).getByRole("button", { name: "Новая доска" }));
+
+    expect(await screen.findByRole("dialog", { name: "Новая доска" })).toBeInTheDocument();
+  });
+
   it("creates a board with POST /boards", async () => {
     const personal = makeBoard({ is_default: true, name: "Личные" });
     const boards = [personal];
@@ -248,6 +260,33 @@ describe("board screen", () => {
     );
     const [patch] = requestsTo(calls, "PATCH", `${BOARDS}/${board.id}`);
     expect(await bodyOf(patch!)).toEqual({ name: "Дом", version: 1 });
+  });
+
+  it("archives over a newer version without asking: the form saves nothing else", async () => {
+    const board = makeBoard({ is_shared: true, name: "Семья", members: [USER_SUMMARY, ZHENYA] });
+    const newer = { ...board, description: "Новое описание", version: board.version + 2 };
+    let patches = 0;
+    const calls = stubApp({
+      boards: [board],
+      onRequest: (request) => {
+        if (request.method !== "PATCH") return undefined;
+        patches += 1;
+        return patches === 1
+          ? apiError(409, "version_conflict", "Объект изменился", { current: newer })
+          : json(200, { ...newer, archived_at: "2026-11-05T10:00:00Z" });
+      },
+    });
+    renderApp(`/boards/${board.id}`);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Настройки доски" }));
+    const dialog = await screen.findByRole("dialog", { name: "Настройки доски" });
+    await user.click(within(dialog).getByRole("button", { name: "Архивировать доску" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const sent = requestsTo(calls, "PATCH", `${API}/boards/${board.id}`);
+    expect(sent).toHaveLength(2);
+    expect(await bodyOf(sent[1]!)).toEqual({ version: newer.version, archived: true });
   });
 
   it("repeats a stale save with the newer version and only the changed fields", async () => {

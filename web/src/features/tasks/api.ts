@@ -199,18 +199,18 @@ export function useUpdateTask() {
 export function useMoveTask() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, columnId, afterId }: MoveInput) =>
+    mutationFn: ({ id, columnId, afterId, changes }: MoveInput) =>
       unwrap(
         api.POST("/api/v1/tasks/{task_id}/move", {
           ...taskPath(id),
-          body: { column_id: columnId, after_id: afterId },
+          body: { column_id: columnId, after_id: afterId, changes },
         }),
       ),
     onSuccess: () => refresh(client),
   });
 }
 
-type MoveInput = { id: string; columnId: string; afterId: string | null };
+type MoveInput = { id: string; columnId: string; afterId: string | null; changes?: TaskUpdate };
 
 /** The lists of a board are one per column, and the others only learn the new status. */
 function placeInLists(client: QueryClient, task: TaskSummary, afterId: string | null | undefined) {

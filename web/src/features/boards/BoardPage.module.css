@@ -71,13 +71,6 @@
   gap: var(--space-4);
 }
 
-.error {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-3);
-}
-
 @media (max-width: 767px) {
   .pageFull {
     height: auto;

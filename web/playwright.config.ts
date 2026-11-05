@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   outputDir: "./test-results",
+  globalTeardown: "./e2e/check-logs.ts",
   // Each test builds its own users and board, and several drags on one page don't run in parallel.
   fullyParallel: false,
   workers: 1,

@@ -164,7 +164,7 @@ test("вид «Список»: строка перетаскивается ме�
   await expect.poll(order).toEqual(["b", "a"]);
 });
 
-test("форма задачи переносит карточку на другую доску, сбрасывая метки", async ({
+test("форма задачи переносит карточку на другую доску вместе с правками", async ({
   browser,
 }, testInfo) => {
   test.skip(testInfo.project.name === "phone", "сценарий формы один на оба размера");
@@ -183,13 +183,13 @@ test("форма задачи переносит карточку на друг�
 
   await owner.page.goto(`/boards/${home.id}?task=${card.id}`);
   const dialog = owner.page.getByRole("dialog");
-  await dialog.getByLabel("Название").waitFor();
+  await dialog.getByLabel("Название").fill("Батон");
   await dialog.getByLabel("Доска").selectOption({ label: "Работа" });
   await dialog.getByRole("button", { name: "Сохранить" }).click();
   await expect(dialog).toHaveCount(0);
 
   await owner.page.goto(`/boards/${work.id}`);
-  await expect(cardOf(owner.page, "Хлеб")).toBeVisible();
+  await expect(cardOf(owner.page, "Батон")).toBeVisible();
   const moved = await owner.api<{ labels: unknown[]; board_name: string }>(
     "GET",
     `tasks/${card.id}`,
@@ -197,7 +197,7 @@ test("форма задачи переносит карточку на друг�
   expect(moved.board_name).toBe("Работа");
   expect(moved.labels).toEqual([]);
 
-  await cardOf(owner.page, "Хлеб").getByRole("button").first().click();
+  await cardOf(owner.page, "Батон").getByRole("button").first().click();
   await owner.page.getByRole("radio", { name: "История" }).click();
   await expect(owner.page.getByText("Перенос: Дом, К выполнению → Работа")).toBeVisible();
   await expect(owner.page.getByText("Убрана метка: Идея")).toBeVisible();

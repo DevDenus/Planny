@@ -1,0 +1,8 @@
+.loadError {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.loadError > button {
+  justify-self: start;
+}

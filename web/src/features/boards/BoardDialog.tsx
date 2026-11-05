@@ -12,11 +12,13 @@ import {
   ConflictDialog,
   Dialog,
   IconButton,
+  LoadError,
   SegmentedControl,
   SelectField,
   TextArea,
   TextField,
   cx,
+  useFocusInvalid,
 } from "../../ui";
 import { useCurrentUser } from "../auth/session";
 import { ROLE_LABELS } from "../tasks/labels";
@@ -48,7 +50,7 @@ function errorText(error: unknown): string | undefined {
 function Members({ board }: { board: Board }) {
   const navigate = useNavigate();
   const { data: me } = useCurrentUser();
-  const { data: members } = useMembers(board.id);
+  const { data: members, isError: noMembers, refetch } = useMembers(board.id);
   const isOwner = board.my_role === "owner" && board.archived_at === null;
   const { data: users } = useUsers(isOwner);
   const add = useAddMember(board.id);
@@ -66,6 +68,9 @@ function Members({ board }: { board: Board }) {
     <section className={styles.members}>
       <h3 className={styles.heading}>Участники</h3>
       {failure ? <Banner tone="error">{errorText(failure)}</Banner> : null}
+      {noMembers && !members && (
+        <LoadError message="Не удалось загрузить участников" onRetry={() => void refetch()} />
+      )}
       <ul className={styles.memberList}>
         {members?.map((member) => (
           <li key={member.user.id} className={styles.member}>
@@ -224,6 +229,7 @@ function BoardForm({ board, onClose, onShowNew }: BoardFormProps) {
   const [icon, setIcon] = useState(base.icon);
   const [view, setView] = useState(base.view);
   const [nameError, setNameError] = useState<string>();
+  const form = useFocusInvalid(nameError);
   const [conflict, setConflict] = useState<{ version: number } | null>(null);
 
   const canEdit = !board || (board.my_role === "owner" && board.archived_at === null);
@@ -274,15 +280,20 @@ function BoardForm({ board, onClose, onShowNew }: BoardFormProps) {
     );
   };
 
-  const setArchived = (archived: boolean) => {
-    if (board) {
-      update.mutate(
-        { id: board.id, body: { version: board.version, archived } },
-        {
-          onSuccess: onClose,
+  const setArchived = (archived: boolean, expected = board?.version) => {
+    if (!board || expected === undefined) return;
+    update.mutate(
+      { id: board.id, body: { version: expected, archived } },
+      {
+        onSuccess: onClose,
+        onError: (error) => {
+          // Archiving touches nothing the other change could have written, so it just goes again.
+          if (error instanceof ApiError && error.code === "version_conflict") {
+            setArchived(archived, (error.details.current as Board).version);
+          }
         },
-      );
-    }
+      },
+    );
   };
 
   return (
@@ -302,7 +313,7 @@ function BoardForm({ board, onClose, onShowNew }: BoardFormProps) {
         ) : undefined
       }
     >
-      <form id="board-form" className={styles.form} onSubmit={submit} noValidate>
+      <form id="board-form" ref={form} className={styles.form} onSubmit={submit} noValidate>
         {failure ? <Banner tone="error">{errorText(failure)}</Banner> : null}
         <TextField
           label="Название"

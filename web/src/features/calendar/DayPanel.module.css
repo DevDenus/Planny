@@ -11,6 +11,11 @@
   font-weight: 700;
 }
 
+.empty {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
 .section {
   display: flex;
   flex-direction: column;

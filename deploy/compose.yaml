@@ -8,6 +8,14 @@ x-backend-image: &backend-image
   build:
     context: ../backend
 
+# Docker keeps logs without a limit by default, and an open tab writes a few megabytes a day.
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
 x-database-env: &database-env
   PLANNY_DATABASE_URL: postgresql+asyncpg://planny:${POSTGRES_PASSWORD:?}@db:5432/planny
 
@@ -18,8 +26,16 @@ x-migrated: &migrated
 
 services:
   db:
+    <<: *logging
     image: postgres:18-alpine
     restart: unless-stopped
+    # DETAIL and STATEMENT quote the values that broke a query, and those are personal.
+    command:
+      - postgres
+      - -c
+      - log_error_verbosity=terse
+      - -c
+      - log_min_error_statement=panic
     environment:
       POSTGRES_USER: planny
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
@@ -34,7 +50,7 @@ services:
       retries: 20
 
   migrate:
-    <<: *backend-image
+    <<: [*backend-image, *logging]
     command: ["python", "-m", "app.schema"]
     environment: *database-env
     networks: [backend]
@@ -43,7 +59,7 @@ services:
         condition: service_healthy
 
   api:
-    <<: [*backend-image, *migrated]
+    <<: [*backend-image, *migrated, *logging]
     restart: unless-stopped
     environment:
       <<: *database-env
@@ -60,13 +76,14 @@ services:
       retries: 12
 
   worker:
-    <<: [*backend-image, *migrated]
+    <<: [*backend-image, *migrated, *logging]
     restart: unless-stopped
     command: ["python", "-m", "app.worker"]
     environment: *database-env
     networks: [backend]
 
   bff:
+    <<: *logging
     image: planny-bff
     build:
       context: ..

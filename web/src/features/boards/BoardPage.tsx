@@ -5,10 +5,10 @@ import { Link, useParams } from "react-router";
 import { ApiError, type Board, type BoardColumn, type TaskFilters } from "../../api/client";
 import {
   Avatar,
-  Banner,
   Button,
   EmptyState,
   IconButton,
+  LoadError,
   Panel,
   SegmentedControl,
   SelectField,
@@ -97,6 +97,7 @@ function BoardList({
           <BoardColumnSection
             key={column.id}
             column={column}
+            boardId={board.id}
             filters={filters}
             now={now}
             timeZone={timeZone}
@@ -142,11 +143,8 @@ function BoardScreen({ boardId }: { boardId: string | undefined }) {
   }
   if (!board) {
     return (
-      <Panel className={styles.error}>
-        <Banner tone="error">Не удалось загрузить доску</Banner>
-        <Button variant="secondary" onClick={() => void refetch()}>
-          Повторить
-        </Button>
+      <Panel>
+        <LoadError message="Не удалось загрузить доску" onRetry={() => void refetch()} />
       </Panel>
     );
   }
@@ -252,6 +250,9 @@ function BoardScreen({ boardId }: { boardId: string | undefined }) {
         />
       )}
       {view !== "calendar" && columns.isPending && <Skeleton height={120} />}
+      {view !== "calendar" && columns.isError && !columns.data && (
+        <LoadError message="Не удалось загрузить колонки" onRetry={() => void columns.refetch()} />
+      )}
       {columns.data && view === "kanban" && (
         <KanbanBoard
           board={board}
