@@ -475,6 +475,70 @@ describe("edit", () => {
     expect(await screen.findByText("Объект больше не существует")).toBeInTheDocument();
   });
 
+  it("says the task was removed when a refresh answers 404, and keeps the typed text", async () => {
+    const personal = makeBoard({ is_default: true });
+    const task = makeTask({ board_id: personal.id, title: "Купить хлеб" });
+    let gone = false;
+    const { calls, client } = openTask(task, {
+      boards: [personal],
+      onRequest: (request) =>
+        gone && request.method === "GET" && path(request) === `${TASKS}/${task.id}`
+          ? apiError(404, "not_found", "Не найдено")
+          : undefined,
+    });
+
+    const user = userEvent.setup();
+    const dialog = await formDialog("Задача");
+    const title = await within(dialog).findByDisplayValue("Купить хлеб");
+    await user.clear(title);
+    await user.type(title, "Купить батон");
+
+    // Deleted meanwhile: the refetch fails, and the form keeps the copy it has.
+    gone = true;
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: TASKS_KEY });
+    });
+    await waitFor(() => expect(requestsTo(calls, "GET", `${TASKS}/${task.id}`)).toHaveLength(2));
+
+    expect(
+      await within(dialog).findByText("Задачу удалили, пока вы её редактировали."),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("textbox", { name: "Название" })).toHaveValue("Купить батон");
+    expect(within(dialog).getByRole("button", { name: "Создать заново" })).toBeInTheDocument();
+  });
+
+  it("says the task was removed to a viewer, without a button to create it again", async () => {
+    const shared = makeBoard({ is_shared: true, my_role: "viewer", name: "Общая" });
+    const task = makeTask({ board_id: shared.id, title: "Купить хлеб" });
+    let gone = false;
+    const { client } = openTask(task, {
+      boards: [shared],
+      onRequest: (request) =>
+        gone && request.method === "GET" && path(request) === `${TASKS}/${task.id}`
+          ? apiError(404, "not_found", "Не найдено")
+          : undefined,
+    });
+
+    const dialog = await formDialog("Задача");
+    await within(dialog).findByDisplayValue("Купить хлеб");
+    // The board decides the lock, so it can arrive a moment after the task.
+    await waitFor(() =>
+      expect(within(dialog).getByRole("textbox", { name: "Название" })).toBeDisabled(),
+    );
+
+    gone = true;
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: TASKS_KEY });
+    });
+
+    expect(
+      await within(dialog).findByText("Задачу удалили, пока вы её редактировали."),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: "Создать заново" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("locks the fields and hides the save button for a viewer of the board", async () => {
     const shared = makeBoard({ is_shared: true, my_role: "viewer", name: "Общая" });
     const task = makeTask({ board_id: shared.id, title: "Купить хлеб" });

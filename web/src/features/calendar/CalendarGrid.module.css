@@ -1,0 +1,124 @@
+.grid {
+  /* The palette of the FullCalendar theme, in the tokens of the app. */
+  --fc-classic-primary: var(--accent);
+  --fc-classic-primary-foreground: var(--text-on-accent);
+  --fc-classic-event: var(--surface-hover);
+  --fc-classic-event-contrast: var(--text-primary);
+  --fc-classic-background-event: var(--accent);
+  --fc-classic-background-event-opacity: 15%;
+  --fc-classic-background-event-foreground-opacity: 50%;
+  --fc-classic-highlight: rgb(18 204 133 / 16%);
+  --fc-classic-today: rgb(18 204 133 / 8%);
+  --fc-classic-now: var(--badge);
+  --fc-classic-small-dot-width: 8px;
+  --fc-classic-large-dot-width: 10px;
+  --fc-classic-background: var(--surface-panel);
+  --fc-classic-faint: rgb(255 255 255 / 4%);
+  --fc-classic-muted: rgb(255 255 255 / 8%);
+  --fc-classic-strong: rgb(255 255 255 / 14%);
+  --fc-classic-foreground: var(--text-primary);
+  --fc-classic-faint-foreground: var(--text-muted);
+  --fc-classic-muted-foreground: var(--text-secondary);
+  --fc-classic-border: var(--border);
+  --fc-classic-strong-border: var(--border-strong);
+
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-panel);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.dayHeader {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-1) 0;
+  line-height: 1.25;
+}
+
+.weekday {
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.date {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.today {
+  background: var(--accent-muted);
+}
+
+.item {
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.done {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.event {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 2px var(--space-2);
+  line-height: 1.25;
+}
+
+.task {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 1px var(--space-1);
+}
+
+.task > svg {
+  flex-shrink: 0;
+}
+
+/* It keeps its line: in a short event the time gives way, not the title. */
+.title {
+  flex-shrink: 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time,
+.taskTime {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.shared {
+  position: absolute;
+  right: 6px;
+  bottom: 3px;
+  color: var(--text-secondary);
+}
+
+.selected {
+  box-shadow: inset 0 0 0 2px var(--border-focus);
+}
+
+.grid .dayTop {
+  flex-direction: row;
+  justify-content: flex-start;
+}

@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 import type { Notification } from "../../api/client";
 import { Avatar, Banner, Button, EmptyState, IconButton, Skeleton, cx } from "../../ui";
 import { useCurrentUser } from "../auth/session";
+import { useEventParam } from "../calendar/eventLinks";
 import { formatMoment } from "../tasks/dates";
 import { NOTIFICATION_TEXT } from "../tasks/labels";
 import { useTaskParam } from "../tasks/taskLinks";
@@ -55,6 +56,7 @@ type RowProps = {
 function Panel({ onClose, unread }: { onClose: () => void; unread: number }) {
   const navigate = useNavigate();
   const { open: openTask } = useTaskParam();
+  const { open: openEvent } = useEventParam();
   const { data: user } = useCurrentUser();
   const { data, isPending, isError, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } =
     useNotifications(true);
@@ -65,7 +67,8 @@ function Panel({ onClose, unread }: { onClose: () => void; unread: number }) {
   const openItem = (item: Notification) => {
     if (item.read_at === null) read.mutate(item.id);
     onClose();
-    if (item.task_id) openTask(item.task_id);
+    if (item.event_id) openEvent(item.event_id);
+    else if (item.task_id) openTask(item.task_id);
     else if (item.board_id) void navigate(`/boards/${item.board_id}`);
   };
 

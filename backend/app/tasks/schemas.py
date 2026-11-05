@@ -11,6 +11,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.calendar.links import EventSummary
 from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.identity.schemas import UserSummary
 from app.tasks.models import ActivityKind, BoardRole, BoardView
@@ -201,6 +202,7 @@ class TaskSummary(BaseModel):
 class Task(TaskSummary):
     description: str | None
     checklist: list[ChecklistItem]
+    linked_events: list[EventSummary]
     created_by: UserSummary
     version: int
     created_at: datetime

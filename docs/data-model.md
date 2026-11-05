@@ -137,6 +137,8 @@ erDiagram
 | `version` | int | Счётчик для обнаружения конфликтов |
 | `deleted_at` | timestamptz, null | |
 
+Поля `recurrence_rule` и `series_end_at` появятся на этапе 5 вместе с сериями.
+
 Для события на весь день `series_end_at` считается как 00:00 UTC следующего дня после конца последнего экземпляра. Запрос периода расширяет окно на день в обе стороны, а точный отбор выполняется после развёртки.
 
 ```sql
@@ -159,6 +161,8 @@ CHECK (
 | `user_id` | uuid, FK | Часть первичного ключа |
 | `category_id` | uuid, FK, null | Личная категория участника |
 | `added_by` | uuid, FK | |
+
+Составной внешний ключ `(user_id, category_id)` не даёт поставить чужую категорию.
 
 ## Задачи
 
@@ -303,6 +307,8 @@ CHECK (
 | `checklist_added`, `checklist_checked`, `checklist_unchecked`, `checklist_removed` | `{"text": "Пункт"}` |
 | `event_linked`, `event_unlinked` | `{"event_id": "...", "title": "Ужин вдвоём"}` |
 
+Запись о связи с событием отдаётся только участникам этого события: остальные участники доски не узнают ни о связи, ни о названии.
+
 ## Уведомления
 
 ### `reminder`
@@ -338,7 +344,7 @@ CHECK (
 | `kind` | enum | Список видов в [frontend.md](frontend.md#8-подписи-и-перечисления) |
 | `actor_id` | uuid, FK, null | Кто совершил действие, у напоминаний `NULL` |
 | `title` | text | Снимок названия объекта на момент уведомления |
-| `event_id`, `task_id`, `board_id` | uuid, FK, null | Цель перехода. `event_id` появится на этапе 4 вместе с таблицей `event` |
+| `event_id`, `task_id`, `board_id` | uuid, FK, null | Цель перехода |
 | `data` | jsonb | Подробности, например `occurrence_start` и новое время |
 | `dedupe_key` | text, unique, null | Защита от дублей при работе worker |
 | `read_at` | timestamptz, null | |
@@ -358,7 +364,7 @@ CHECK (
 | Таблица | Индекс | Зачем |
 |---|---|---|
 | `event_participant` | `(user_id, event_id)` | Календарь пользователя |
-| `event` | `(series_end_at)` | Отбор по периоду |
+| `event` | `(series_end_at)` | Отбор по периоду, появится на этапе 5 |
 | `reminder` | `(next_fire_at) WHERE next_fire_at IS NOT NULL` | Очередь worker |
 | `task` | `(board_id, column_id, position)` | Порядок карточек |
 | `task` | `UNIQUE (column_id, position) WHERE deleted_at IS NULL` | Страховка от одинаковых ключей |

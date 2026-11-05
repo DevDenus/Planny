@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.calendar.provisioning import add_default_categories
 from app.core.clock import utcnow
 from app.core.config import get_settings
 from app.core.errors import field_error, not_found, rate_limited, unauthorized
@@ -180,11 +181,16 @@ async def timezone_of(principal: Principal, db: AsyncSession) -> ZoneInfo:
     return ZoneInfo((await _current_user(principal, db)).timezone)
 
 
-# Other modules see users only through these two.
+# Other modules see users only through these.
 
 
 async def users_by_id(db: AsyncSession, user_ids: Iterable[UUID]) -> dict[UUID, User]:
     return {user.id: user for user in await repository.get_users(db, set(user_ids))}
+
+
+async def lock_user(db: AsyncSession, user_id: UUID) -> None:
+    """Puts the changes of what a user owns in one order, so their unique names need no retries."""
+    await repository.lock_user(db, user_id)
 
 
 async def active_user(db: AsyncSession, user_id: UUID) -> User | None:
@@ -222,6 +228,7 @@ async def create_user(
     db.add(user)
     await db.flush()
     await provisioning.add_personal_board(db, user.id)
+    add_default_categories(db, user.id)
     sync.init_user(db, user.id)
     repository.add_audit_record(
         db,

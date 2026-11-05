@@ -21,7 +21,7 @@ import {
   type TaskSummary,
   type TaskUpdate,
 } from "../../api/client";
-import { BOARDS_KEY, TASKS_KEY } from "../../api/queryClient";
+import { BOARDS_KEY, CALENDAR_KEY, TASKS_KEY } from "../../api/queryClient";
 import { useToast } from "../../ui";
 
 const LISTS_KEY = [...TASKS_KEY, "list"] as const;
@@ -41,6 +41,7 @@ function refresh(client: QueryClient) {
   return Promise.all([
     client.invalidateQueries({ queryKey: TASKS_KEY }),
     client.invalidateQueries({ queryKey: BOARDS_KEY }),
+    client.invalidateQueries({ queryKey: CALENDAR_KEY }),
   ]);
 }
 

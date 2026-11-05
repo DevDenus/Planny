@@ -19,6 +19,7 @@ import {
 } from "../../ui";
 import { useCurrentUser } from "../auth/session";
 import { useBoard, useBoards, useColumns, useLabels, useMembers } from "../boards/api";
+import { TaskEventLinks } from "../calendar/TaskEventLinks";
 import {
   failureMessage,
   useCreateTask,
@@ -138,11 +139,13 @@ type TaskFormProps = {
   task?: Task;
   initial: Draft;
   timeZone: string;
+  /** The task is gone on the server while the last copy stays on screen. */
+  removed?: boolean;
   onClose: () => void;
   onReload: () => void;
 };
 
-function TaskForm({ task, initial, timeZone, onClose, onReload }: TaskFormProps) {
+function TaskForm({ task, initial, timeZone, removed, onClose, onReload }: TaskFormProps) {
   const create = useCreateTask();
   const update = useUpdateTask();
   const move = useMoveTask();
@@ -318,12 +321,14 @@ function TaskForm({ task, initial, timeZone, onClose, onReload }: TaskFormProps)
           <form id="task-form" ref={form} className={styles.form} onSubmit={submit} noValidate>
             {readOnly && <Banner tone="info">Доска доступна только для чтения</Banner>}
             {failure && <Banner tone="error">{failure}</Banner>}
-            {gone && (
+            {(gone || removed) && (
               <Banner tone="warning">
                 <p>Задачу удалили, пока вы её редактировали.</p>
-                <Button variant="secondary" loading={saving} onClick={() => void recreate()}>
-                  Создать заново
-                </Button>
+                {!readOnly && (
+                  <Button variant="secondary" loading={saving} onClick={() => void recreate()}>
+                    Создать заново
+                  </Button>
+                )}
               </Banner>
             )}
             <TextField
@@ -445,6 +450,7 @@ function TaskForm({ task, initial, timeZone, onClose, onReload }: TaskFormProps)
           ) : (
             <DraftChecklist items={checklist} onChange={setChecklist} />
           )}
+          {task && <TaskEventLinks task={task} readOnly={readOnly} />}
         </div>
         {task && board && (
           <TaskFeed task={task} board={board} readOnly={readOnly} timeZone={timeZone} />
@@ -542,12 +548,15 @@ function ExistingTask({ id, onClose }: { id: string; onClose: () => void }) {
   const [revision, setRevision] = useState(0);
 
   if (task && user) {
+    // A failed refetch keeps the last task next to the error, so the form stays and says it is gone.
+    const removed = error instanceof ApiError && error.status === 404;
     return (
       <TaskForm
         key={revision}
         task={task}
         initial={draftOf(task, user.timezone)}
         timeZone={user.timezone}
+        removed={removed}
         onClose={onClose}
         onReload={() => {
           void client.invalidateQueries({ queryKey: TASKS_KEY }).then(() => {

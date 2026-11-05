@@ -12,7 +12,7 @@ export const TASK_GROUPS: { id: TaskGroup; title: string }[] = [
 
 // Indexed by Date#getUTCDay(), so Sunday comes first.
 const WEEKDAYS_SHORT = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
-const MONTHS_SHORT = [
+export const MONTHS_SHORT = [
   "янв",
   "фев",
   "мар",
@@ -116,7 +116,7 @@ function yearSuffix(day: string, today: string): string {
   return year === todayYear ? "" : ` ${year}`;
 }
 
-function clockTime(moment: string, timeZone: string): string {
+export function clockTime(moment: string, timeZone: string): string {
   const f = zonedFields(new Date(moment).getTime(), timeZone);
   return `${pad2(f.hour)}:${pad2(f.minute)}`;
 }
@@ -140,7 +140,7 @@ export function endOfWeek(day: string): string {
 }
 
 /** The deadline's calendar day in the zone. The backend allows only one of the two fields. */
-function deadlineDay(task: Deadline, timeZone: string): string | null {
+export function deadlineDay(task: Deadline, timeZone: string): string | null {
   return task.due_at === null ? task.due_date : localDate(task.due_at, timeZone);
 }
 

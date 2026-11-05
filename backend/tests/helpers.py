@@ -55,3 +55,16 @@ async def create_task(
     assert response.status_code == 201, response.text
     task: dict[str, Any] = response.json()
     return task
+
+
+async def create_event(
+    client: AsyncClient, headers: dict[str, str], **fields: Any
+) -> dict[str, Any]:
+    fields.setdefault("title", "Событие")
+    if not fields.get("all_day"):
+        fields.setdefault("start_at", "2026-11-06T16:00:00Z")
+        fields.setdefault("end_at", "2026-11-06T17:00:00Z")
+    response = await client.post("events", json=fields, headers=headers)
+    assert response.status_code == 201, response.text
+    event: dict[str, Any] = response.json()
+    return event

@@ -1,8 +1,6 @@
 import asyncio
 import os
-import subprocess
 from collections.abc import AsyncIterator, Iterator
-from pathlib import Path
 
 import asyncpg  # type: ignore[import-untyped]
 import pytest
@@ -25,8 +23,8 @@ from app.core.principal import Operator  # noqa: E402
 from app.identity import passwords, repository, service  # noqa: E402
 from app.identity.models import User  # noqa: E402
 from app.main import create_app  # noqa: E402
+from app.schema import create_schema  # noqa: E402
 
-BACKEND_ROOT = Path(__file__).resolve().parent.parent
 PASSWORD = "correct-horse-battery"
 OPERATOR = Operator(actor="test")
 
@@ -43,7 +41,7 @@ async def _reset_schema() -> None:
 @pytest.fixture(scope="session", autouse=True)
 def schema() -> Iterator[None]:
     asyncio.run(_reset_schema())
-    subprocess.run(["alembic", "upgrade", "head"], cwd=BACKEND_ROOT, check=True)
+    asyncio.run(create_schema())
     yield
 
 

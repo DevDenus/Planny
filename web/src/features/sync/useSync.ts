@@ -2,7 +2,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
 import { api, unwrap, type SyncState } from "../../api/client";
-import { BOARDS_KEY, NOTIFICATIONS_KEY, SYNC_KEY, TASKS_KEY } from "../../api/queryClient";
+import {
+  BOARDS_KEY,
+  CALENDAR_KEY,
+  NOTIFICATIONS_KEY,
+  SYNC_KEY,
+  TASKS_KEY,
+} from "../../api/queryClient";
 import { whenReleased } from "./hold";
 
 const POLL_MS = 5_000;
@@ -32,7 +38,14 @@ export function useSync() {
       whenReleased(() => {
         void client.invalidateQueries({ queryKey: TASKS_KEY });
         void client.invalidateQueries({ queryKey: BOARDS_KEY });
+        // Deadlines are shown in the calendar.
+        void client.invalidateQueries({ queryKey: CALENDAR_KEY });
       });
+    }
+    if (before.calendar !== data.calendar) {
+      void client.invalidateQueries({ queryKey: CALENDAR_KEY });
+      // A task form lists its linked events.
+      void client.invalidateQueries({ queryKey: [...TASKS_KEY, "detail"] });
     }
     if (before.notifications !== data.notifications) {
       void client.invalidateQueries({ queryKey: NOTIFICATIONS_KEY });

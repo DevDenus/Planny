@@ -14,12 +14,14 @@ def init_user(db: AsyncSession, user_id: UUID) -> None:
 async def bump(
     db: AsyncSession,
     *,
+    calendar_for: Iterable[UUID] = (),
     tasks_for: Iterable[UUID] = (),
     notifications_for: Iterable[UUID] = (),
 ) -> None:
     """Call last in a transaction. Updating the counter row orders concurrent transactions, and
     the fixed order keeps two of them from waiting on each other's rows."""
-    touched = {(user_id, SyncScope.tasks) for user_id in tasks_for}
+    touched = {(user_id, SyncScope.calendar) for user_id in calendar_for}
+    touched |= {(user_id, SyncScope.tasks) for user_id in tasks_for}
     touched |= {(user_id, SyncScope.notifications) for user_id in notifications_for}
     for user_id, scope in sorted(touched):
         await db.execute(

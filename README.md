@@ -36,5 +36,6 @@ docker compose --project-directory deploy -f deploy/compose.yaml -f deploy/compo
 | `make openapi` | Обновляет `backend/openapi.json` и клиент API в `web/src/api/`. Нужна после изменения маршрутов, иначе CI упадёт |
 | `make logs` | Логи контейнеров |
 | `make down` | Останавливает контейнеры, данные остаются в томе |
+| `make db-reset` | Пересоздаёт базу разработки после изменения схемы, все данные в ней теряются |
 
 Для работы над интерфейсом удобнее `npm run dev` в папке `web/`: Vite открывается на <http://localhost:5173> и проксирует `/bff` в запущенный Compose.
