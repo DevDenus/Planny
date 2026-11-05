@@ -121,6 +121,40 @@ describe("session guard", () => {
 
     expect(await screen.findByRole("heading", { name: "Вход" })).toBeInTheDocument();
     expect(screen.getByLabelText("Логин")).toBeInTheDocument();
+    expect(screen.getByText("Сеанс завершён, войдите снова")).toBeInTheDocument();
+  });
+
+  it("says nothing about a session to someone who opens the site signed out", async () => {
+    stubBackend(() => undefined);
+    renderApp("/settings");
+
+    expect(await screen.findByRole("heading", { name: "Вход" })).toBeInTheDocument();
+    expect(screen.queryByText("Сеанс завершён, войдите снова")).not.toBeInTheDocument();
+  });
+
+  it("returns to the same screen and dialog after signing in again", async () => {
+    let alive = true;
+    stubBackend((request) => {
+      if (path(request) === "/bff/login") {
+        alive = true;
+        return json(200, { user: USER, csrf_token: "c" });
+      }
+      return alive && path(request).endsWith("/me") ? json(200, USER) : undefined;
+    });
+    const { client } = renderApp("/settings?task=t1");
+    expect(await screen.findByRole("heading", { name: "Настройки" })).toBeInTheDocument();
+
+    alive = false;
+    await client.invalidateQueries({ queryKey: ME_KEY });
+    await screen.findByRole("heading", { name: "Вход" });
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Логин"), "sasha");
+    await user.type(screen.getByLabelText("Пароль", { exact: true }), "family-planner-2026");
+    await user.click(screen.getByRole("button", { name: "Войти" }));
+
+    expect(await screen.findByRole("heading", { name: "Настройки" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Задача" })).toBeInTheDocument();
   });
 
   it("signs in again after the session ended", async () => {

@@ -7,11 +7,6 @@ from httpx import AsyncClient
 from app.identity.models import User
 from tests.helpers import add_member, columns, create_task, personal_board, signed_in
 
-SCOPE_BUG = (
-    "GET tasks?scope=... answers 500: the EXISTS in repository._task_conditions "
-    "auto-correlates every table, so the query has no FROM"
-)
-
 
 async def column_id(
     client: AsyncClient, headers: dict[str, str], board_id: str, *, done: bool

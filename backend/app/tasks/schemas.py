@@ -262,10 +262,12 @@ class TaskUpdate(Patch, Deadline):
 
 
 class TaskMove(Input):
-    """`after_id`: null means the start of the column, absent means its end."""
+    """`after_id`: null means the start of the column, absent means its end. `changes` are saved
+    with the move or not at all, and are checked against the board the card arrives at."""
 
     column_id: UUID
     after_id: UUID | None = None
+    changes: TaskUpdate | None = None
 
 
 class ChecklistItemCreate(Input):

@@ -97,10 +97,3 @@
 .members > * + * {
   margin-left: calc(var(--space-2) * -1);
 }
-
-.error {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-3);
-}

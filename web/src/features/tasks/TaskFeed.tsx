@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 
 import type { Board, Task, TaskComment } from "../../api/client";
-import { Avatar, Banner, Button, SegmentedControl, Skeleton, TextArea } from "../../ui";
+import { Avatar, Banner, Button, LoadError, SegmentedControl, Skeleton, TextArea } from "../../ui";
 import { useCurrentUser } from "../auth/session";
 import {
   failureMessage,
@@ -141,7 +141,12 @@ function Comments({ task, board, readOnly, timeZone }: TaskFeedProps) {
   return (
     <>
       {comments.isPending && <Skeleton height={64} />}
-      {comments.isError && <Banner tone="error">Не удалось загрузить комментарии</Banner>}
+      {comments.isError && (
+        <LoadError
+          message="Не удалось загрузить комментарии"
+          onRetry={() => void comments.refetch()}
+        />
+      )}
       {comments.isSuccess && items.length === 0 && (
         <p className={styles.empty}>Комментариев пока нет</p>
       )}
@@ -195,7 +200,9 @@ function History({ taskId, timeZone }: { taskId: string; timeZone: string }) {
   return (
     <>
       {activity.isPending && <Skeleton height={64} />}
-      {activity.isError && <Banner tone="error">Не удалось загрузить историю</Banner>}
+      {activity.isError && (
+        <LoadError message="Не удалось загрузить историю" onRetry={() => void activity.refetch()} />
+      )}
       {items.length > 0 && (
         <ul className={styles.records}>
           {items.map((record) => (

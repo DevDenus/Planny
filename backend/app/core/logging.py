@@ -1,11 +1,28 @@
 import json
 import logging
 import sys
+import traceback
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
+
+
+def _stack(error: BaseException | None) -> str:
+    """Frames and exception types without the messages: a message can quote what the user sent,
+    as a database error does with the value that broke a constraint."""
+    if error is None:
+        return ""
+    parts: list[str] = []
+    current: traceback.TracebackException | None = traceback.TracebackException.from_exception(
+        error
+    )
+    while current is not None:
+        parts.insert(0, "".join(current.stack.format()) + current.exc_type_str)
+        hidden = current.__suppress_context__
+        current = current.__cause__ or (None if hidden else current.__context__)
+    return "\n".join(parts)
 
 
 class JsonFormatter(logging.Formatter):
@@ -20,7 +37,7 @@ class JsonFormatter(logging.Formatter):
             payload["request_id"] = request_id
         payload.update(getattr(record, "fields", {}))
         if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
+            payload["exception"] = _stack(record.exc_info[1])
         return json.dumps(payload, ensure_ascii=False, default=str)
 
 

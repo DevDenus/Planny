@@ -2,7 +2,15 @@ import { Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { ApiError, type Label, type LabelColor } from "../../api/client";
-import { Banner, Button, Dialog, IconButton, TextField } from "../../ui";
+import {
+  Banner,
+  Button,
+  Dialog,
+  IconButton,
+  LoadError,
+  TextField,
+  useFocusInvalid,
+} from "../../ui";
 import { failureMessage } from "../tasks/api";
 import { LabelChip } from "../tasks/LabelChip";
 import { LabelColorPicker } from "../tasks/LabelPicker";
@@ -24,6 +32,7 @@ function LabelEditor({ initial, boardId, onClose }: EditorProps) {
   const [color, setColor] = useState<LabelColor>(initial?.color ?? "blue");
   const failed = create.error ?? update.error;
   const nameError = failed instanceof ApiError ? failed.fields.name : undefined;
+  const editor = useFocusInvalid<HTMLDivElement>(nameError);
 
   const save = () => {
     const body = { name: name.trim(), color };
@@ -32,7 +41,7 @@ function LabelEditor({ initial, boardId, onClose }: EditorProps) {
   };
 
   return (
-    <div className={styles.editor}>
+    <div ref={editor} className={styles.editor}>
       {failed && !nameError && <Banner tone="error">{failureMessage(failed)}</Banner>}
       <TextField
         label="Название метки"
@@ -59,7 +68,7 @@ function LabelEditor({ initial, boardId, onClose }: EditorProps) {
 }
 
 export function BoardLabels({ boardId, canEdit }: { boardId: string; canEdit: boolean }) {
-  const { data: labels } = useLabels(boardId);
+  const { data: labels, isError, refetch } = useLabels(boardId);
   const remove = useDeleteLabel(boardId);
   const [editing, setEditing] = useState<Label | "new" | null>(null);
   const [deleting, setDeleting] = useState<Label | null>(null);
@@ -67,6 +76,9 @@ export function BoardLabels({ boardId, canEdit }: { boardId: string; canEdit: bo
   return (
     <section className={styles.section} aria-label="Метки доски">
       <h3 className={styles.title}>Метки</h3>
+      {isError && !labels && (
+        <LoadError message="Не удалось загрузить метки" onRetry={() => void refetch()} />
+      )}
       {labels && labels.length === 0 && <p className={styles.empty}>Меток пока нет</p>}
       {labels && labels.length > 0 && (
         <ul className={styles.list}>

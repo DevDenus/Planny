@@ -160,7 +160,7 @@ export function useUpdateColumn(boardId: string) {
   });
 }
 
-export function placeColumn(
+function placeColumn(
   columns: BoardColumn[],
   columnId: string,
   afterId: string | null,

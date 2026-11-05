@@ -1,8 +1,9 @@
 COMPOSE = docker compose --project-directory deploy -f deploy/compose.yaml -f deploy/compose.dev.yaml
 TEST_COMPOSE = docker compose -f deploy/compose.test.yaml
-E2E_COMPOSE = docker compose --project-directory deploy -f deploy/compose.yaml -f deploy/compose.e2e.yaml
+# -p because `down -v` must never follow a COMPOSE_PROJECT_NAME from the shell to the dev volume.
+E2E_COMPOSE = docker compose -p planny-e2e --project-directory deploy -f deploy/compose.yaml -f deploy/compose.e2e.yaml
 
-.PHONY: env up down db-reset logs test-db test test-backend test-bff test-web e2e lint format openapi client
+.PHONY: env up down db-reset logs test-db test test-backend test-bff test-web e2e restore-check lint format openapi client
 
 deploy/.env:
 	@umask 077; { \
@@ -38,6 +39,10 @@ test: test-backend test-bff test-web
 e2e: deploy/.env
 	$(E2E_COMPOSE) up -d --build --wait
 	cd web && npx playwright test; status=$$?; cd .. && $(E2E_COMPOSE) down -v; exit $$status
+
+# AC-11 on a throwaway stack: damaged copies change nothing, a good one restores.
+restore-check: deploy/.env
+	deploy/backup/check-restore.sh
 
 test-backend: test-db
 	cd backend && uv run pytest

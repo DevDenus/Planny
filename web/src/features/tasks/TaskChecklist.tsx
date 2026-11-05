@@ -14,7 +14,7 @@ import styles from "./TaskChecklist.module.css";
 const ITEM_MAX_LENGTH = 500;
 
 /** Not a form: the checklist sits next to the fields of the task form and forms can't nest. */
-export function ChecklistInput({ onAdd }: { onAdd: (text: string) => void }) {
+function ChecklistInput({ onAdd }: { onAdd: (text: string) => void }) {
   const [text, setText] = useState("");
 
   const add = () => {

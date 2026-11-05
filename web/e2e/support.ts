@@ -11,9 +11,11 @@ import {
 } from "@playwright/test";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const PASSWORD = "family-planner-2026";
-const COMPOSE = [
+export const PASSWORD = "family-planner-2026";
+export const COMPOSE = [
   "compose",
+  "-p",
+  "planny-e2e",
   "--project-directory",
   `${ROOT}/deploy`,
   "-f",
@@ -38,6 +40,7 @@ function createAccount(login: string, name: string): string {
 
 export type Member = {
   id: string;
+  login: string;
   context: BrowserContext;
   page: Page;
   api: <T = Record<string, never>>(method: string, path: string, body?: unknown) => Promise<T>;
@@ -75,7 +78,29 @@ export async function signIn(
     return (response.status() === 204 ? {} : await response.json()) as T;
   };
   const me = await api<{ id: string }>("GET", "me");
-  return { id: me.id, context, page, api };
+  return { id: me.id, login, context, page, api };
+}
+
+/** Changing the password from another device closes every other session of the user. */
+export async function changePasswordElsewhere(
+  browser: Browser,
+  member: Member,
+  newPassword: string,
+): Promise<void> {
+  const context = await browser.newContext();
+  const signedIn = await context.request.post("/bff/login", {
+    data: { login: member.login, password: PASSWORD },
+  });
+  expect(signedIn.ok(), await signedIn.text()).toBeTruthy();
+  const cookies = await context.cookies();
+  const changed = await context.request.post("/bff/api/v1/auth/change-password", {
+    headers: {
+      "X-CSRF-Token": cookies.find((cookie) => cookie.name.endsWith("planny_csrf"))?.value ?? "",
+    },
+    data: { current_password: PASSWORD, new_password: newPassword },
+  });
+  expect(changed.ok(), await changed.text()).toBeTruthy();
+  await context.close();
 }
 
 export type Column = { id: string; name: string };
@@ -90,7 +115,11 @@ export async function kanbanBoard(owner: Member, name: string) {
 }
 
 export function addCard(owner: Member, boardId: string, columnId: string, title: string) {
-  return owner.api<Card>("POST", "tasks", { board_id: boardId, column_id: columnId, title });
+  return owner.api<Card & { version: number }>("POST", "tasks", {
+    board_id: boardId,
+    column_id: columnId,
+    title,
+  });
 }
 
 export const columnOf = (page: Page, name: string) => page.getByRole("region", { name });

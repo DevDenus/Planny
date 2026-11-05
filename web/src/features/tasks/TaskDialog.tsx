@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 
 import { ApiError, type Task, type TaskCreate, type TaskUpdate } from "../../api/client";
 import { TASKS_KEY } from "../../api/queryClient";
@@ -12,10 +12,12 @@ import {
   ConflictDialog,
   Dialog,
   EmptyState,
+  LoadError,
   SelectField,
   Skeleton,
   TextArea,
   TextField,
+  useFocusInvalid,
 } from "../../ui";
 import { useCurrentUser } from "../auth/session";
 import { useBoard, useBoards, useColumns, useLabels, useMembers } from "../boards/api";
@@ -186,20 +188,19 @@ function TaskForm({ task, initial, timeZone, removed, onClose, onReload }: TaskF
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [gone, setGone] = useState(false);
   const [saving, setSaving] = useState(false);
-  const form = useRef<HTMLFormElement>(null);
+  const form = useFocusInvalid(errors);
 
   const { data: board } = useBoard(draft.boardId);
-  const { data: columns } = useColumns(draft.boardId);
+  const { data: columns, isError: noColumns, refetch: reloadColumns } = useColumns(draft.boardId);
   const { data: members } = useMembers(draft.boardId);
   const { data: labels } = useLabels(draft.boardId);
   const readOnly =
     board !== undefined && (board.my_role === "viewer" || board.archived_at !== null);
 
-  useEffect(() => {
-    form.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
-  }, [errors]);
-
   const writableBoards = (boards ?? []).filter((item) => item.my_role !== "viewer");
+  const firstOpen = columns?.find((column) => !column.is_done)?.id;
+  // A card leaving its board needs a place on the new one, and its columns may still be loading.
+  const noPlace = Boolean(task) && draft.boardId !== base.boardId && !draft.columnId && !firstOpen;
   const set = (change: Partial<Draft>) => setDraft((current) => ({ ...current, ...change }));
 
   // Someone may have removed a label or a member while the form stood open, or the card was
@@ -213,31 +214,6 @@ function TaskForm({ task, initial, timeZone, removed, onClose, onReload }: TaskF
       ? draft.assigneeIds.filter((id) => members.some(({ user }) => user.id === id))
       : draft.assigneeIds,
   });
-
-  const moveToBoard = async (taskId: string, wanted: Draft, expected: number) => {
-    const fields = changes(base, wanted, timeZone);
-    delete fields.assignee_ids;
-    delete fields.label_ids;
-    if (Object.keys(fields).length > 0) {
-      await update.mutateAsync({ id: taskId, body: { ...fields, version: expected } });
-    }
-    const columnId =
-      wanted.columnId || columns?.find((column) => !column.is_done)?.id || wanted.columnId;
-    const moved = await move.mutateAsync({ id: taskId, columnId, afterId: null });
-    // Assignees and labels are checked against the board, so they go after the card is there.
-    const assignees = moved.assignees.map((user) => user.id);
-    const onCard = moved.labels.map((label) => label.id);
-    if (!sameIds(wanted.assigneeIds, assignees) || !sameIds(wanted.labelIds, onCard)) {
-      await update.mutateAsync({
-        id: taskId,
-        body: {
-          assignee_ids: wanted.assigneeIds,
-          label_ids: wanted.labelIds,
-          version: moved.version,
-        },
-      });
-    }
-  };
 
   const fail = (error: unknown) => {
     if (error instanceof ApiError && error.code === "version_conflict") {
@@ -267,15 +243,15 @@ function TaskForm({ task, initial, timeZone, removed, onClose, onReload }: TaskF
       const wanted = current();
       if (!task) {
         await create.mutateAsync(createBody(wanted, checklist, timeZone, newId));
-      } else if (wanted.boardId !== base.boardId) {
-        await moveToBoard(task.id, wanted, expected);
       } else {
-        const body = changes(base, wanted, timeZone);
-        if (Object.keys(body).length > 0) {
-          await update.mutateAsync({ id: task.id, body: { ...body, version: expected } });
-        }
-        if (wanted.columnId !== base.columnId) {
-          await move.mutateAsync({ id: task.id, columnId: wanted.columnId, afterId: null });
+        const edited = changes(base, wanted, timeZone);
+        const body = Object.keys(edited).length > 0 ? { ...edited, version: expected } : undefined;
+        // A new board without a chosen column means the first open one, as for a new task.
+        const columnId = wanted.columnId || firstOpen || base.columnId;
+        if (columnId !== base.columnId) {
+          await move.mutateAsync({ id: task.id, columnId, afterId: null, changes: body });
+        } else if (body) {
+          await update.mutateAsync({ id: task.id, body });
         }
       }
       onClose();
@@ -323,7 +299,7 @@ function TaskForm({ task, initial, timeZone, removed, onClose, onReload }: TaskF
         {readOnly ? "Закрыть" : "Отмена"}
       </Button>
       {!readOnly && (
-        <Button type="submit" form="task-form" loading={saving}>
+        <Button type="submit" form="task-form" loading={saving} disabled={noPlace}>
           Сохранить
         </Button>
       )}
@@ -398,6 +374,12 @@ function TaskForm({ task, initial, timeZone, removed, onClose, onReload }: TaskF
                 onChange={(event) => set({ columnId: event.target.value })}
               />
             </div>
+            {noColumns && !columns && (
+              <LoadError
+                message="Не удалось загрузить колонки доски"
+                onRetry={() => void reloadColumns()}
+              />
+            )}
             <TextArea
               label="Описание"
               value={draft.description}
@@ -573,16 +555,28 @@ function TaskForm({ task, initial, timeZone, removed, onClose, onReload }: TaskF
   );
 }
 
-function NewTask({ boardId, onClose }: { boardId?: string; onClose: () => void }) {
+function NewTask({
+  boardId,
+  columnId,
+  onClose,
+}: {
+  boardId?: string;
+  columnId?: string;
+  onClose: () => void;
+}) {
   const { data: user } = useCurrentUser();
-  const { data: boards, isPending } = useBoards();
+  const { data: boards, isPending, refetch } = useBoards();
   const personal = boards?.find((board) => board.is_default)?.id;
   const target = boardId ?? personal;
 
   if (isPending || !user || !target) {
     return (
       <Dialog title="Новая задача" width={640} onClose={onClose}>
-        <Skeleton height={240} />
+        {isPending || !user ? (
+          <Skeleton height={240} />
+        ) : (
+          <LoadError onRetry={() => void refetch()} />
+        )}
       </Dialog>
     );
   }
@@ -594,7 +588,7 @@ function NewTask({ boardId, onClose }: { boardId?: string; onClose: () => void }
       initial={{
         title: "",
         boardId: target,
-        columnId: "",
+        columnId: columnId ?? "",
         description: "",
         priority: "3",
         startDate: "",
@@ -612,7 +606,7 @@ function NewTask({ boardId, onClose }: { boardId?: string; onClose: () => void }
 function ExistingTask({ id, onClose }: { id: string; onClose: () => void }) {
   const client = useQueryClient();
   const { data: user } = useCurrentUser();
-  const { data: task, error, isPending } = useTask(id);
+  const { data: task, error, isPending, refetch } = useTask(id);
   // Bumped by "show the new version": the form rebuilds its draft from fresh data.
   const [revision, setRevision] = useState(0);
 
@@ -647,7 +641,7 @@ function ExistingTask({ id, onClose }: { id: string; onClose: () => void }) {
       {error instanceof ApiError && error.status === 404 ? (
         <EmptyState title="Объект больше не существует" />
       ) : (
-        <Banner tone="error">{failureMessage(error)}</Banner>
+        <LoadError message={failureMessage(error)} onRetry={() => void refetch()} />
       )}
     </Dialog>
   );
@@ -655,8 +649,10 @@ function ExistingTask({ id, onClose }: { id: string; onClose: () => void }) {
 
 /** Mounted once in the shell, so a task opens over whatever screen is underneath. */
 export function TaskDialogHost() {
-  const { task, boardId, close } = useTaskParam();
+  const { task, boardId, columnId, close } = useTaskParam();
   if (!task) return null;
-  if (task === NEW_TASK) return <NewTask boardId={boardId} onClose={close} />;
+  if (task === NEW_TASK) {
+    return <NewTask boardId={boardId} columnId={columnId} onClose={close} />;
+  }
   return <ExistingTask key={task} id={task} onClose={close} />;
 }

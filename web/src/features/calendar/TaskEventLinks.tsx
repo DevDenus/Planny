@@ -113,7 +113,7 @@ export function TaskEventLinks({ task, readOnly }: TaskEventLinksProps) {
           <Button
             variant="secondary"
             icon={<CalendarPlus size={18} />}
-            onClick={() => create({ day, taskId: task.id, title: task.title })}
+            onClick={() => create({ day, taskId: task.id })}
           >
             Создать событие
           </Button>

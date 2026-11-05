@@ -62,7 +62,7 @@ export function apiError(
 const UNAUTHORIZED = () => apiError(401, "unauthorized", "Требуется вход");
 
 /** Every fetch goes through `stub`, a request it doesn't answer gets 401. Returns the requests seen. */
-export function stubBackend(stub: Stub): Request[] {
+function stubBackend(stub: Stub): Request[] {
   const calls: Request[] = [];
   vi.stubGlobal("fetch", async (input: RequestInfo, init?: RequestInit) => {
     const request = new Request(new URL(input as string, "http://localhost"), init);

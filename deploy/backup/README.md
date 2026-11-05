@@ -43,6 +43,16 @@ deploy/backup/restore.sh deploy/backup/dumps/planny-20261104-120000.dump
 
 ## Как проверить
 
+Весь путь проверяется одной командой на отдельном стеке, данные разработки она не трогает:
+
+```bash
+make restore-check
+```
+
+Она подсовывает `restore.sh` обрезанную, зашумлённую, пустую и чужую копии, убеждается, что база не изменилась, а затем восстанавливает настоящую копию на работающей и на чистой базе и входит старым паролем.
+
+После восстановления настоящей копии сверьте пользователей вручную:
+
 ```bash
 docker compose --project-directory deploy -f deploy/compose.yaml -f deploy/compose.dev.yaml exec api planny users list
 ```

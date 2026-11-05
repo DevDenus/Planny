@@ -1,7 +1,7 @@
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import date, datetime, time
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -448,6 +448,10 @@ async def _version_conflict(
     return version_conflict(current.model_dump(mode="json"), last_change=last_change)
 
 
+def _is_personal(body: schemas.TaskUpdate) -> bool:
+    return "reminder_at" in body.model_fields_set and body.model_fields_set <= PERSONAL_FIELDS
+
+
 async def _update_own(
     principal: Principal, db: AsyncSession, task_id: UUID, body: schemas.TaskUpdate
 ) -> schemas.Task:
@@ -460,16 +464,17 @@ async def _update_own(
     return updated
 
 
-async def update_task(
-    principal: Principal, db: AsyncSession, task_id: UUID, body: schemas.TaskUpdate
-) -> schemas.Task:
-    if "reminder_at" in body.model_fields_set and body.model_fields_set <= PERSONAL_FIELDS:
-        return await _update_own(principal, db, task_id, body)
+class Edited(NamedTuple):
+    card: bool
+    reminder: bool
+    notified: set[UUID]
 
-    task, target = await locked_writable(principal, db, task_id)
-    if task.version != body.version:
-        raise await _version_conflict(principal, db, task, target.board.name)
 
+async def _edit(
+    principal: Principal, db: AsyncSession, task: models.Task, body: schemas.TaskUpdate
+) -> Edited:
+    """Assignees and labels are checked against the board the card is on, and the notifications go
+    to those who are on the card when this returns."""
     changes = _apply_fields(task, body)
     timezone = await identity.timezone_of(principal, db)
     _check_dates(task.start_date, task.due_date, task.due_at, timezone)
@@ -491,23 +496,39 @@ async def update_task(
     reminded = "reminder_at" in body.model_fields_set and await _set_reminder(
         principal, db, task.id, body.reminder_at, now
     )
-    if changes or added or removed or labeled:
-        task.version += 1
-        notified = _notify_assigned(db, principal, task, added)
-        if any(change["field"] in NOTIFIED_FIELDS for change in changes):
-            # Those just added hear of the assignment instead.
-            recipients = set(await repository.assignee_ids(db, task.id)) - added
-            notified |= notifications.notify(
-                db,
-                recipients,
-                NotificationKind.task_updated,
-                actor_id=principal.user_id,
-                title=task.title,
-                task_id=task.id,
-                board_id=task.board_id,
-            )
-        await board_service.publish(db, task.board_id, notified=notified)
-    elif reminded:
+    if not (changes or added or removed or labeled):
+        return Edited(card=False, reminder=reminded, notified=set())
+    task.version += 1
+    notified = _notify_assigned(db, principal, task, added)
+    if any(change["field"] in NOTIFIED_FIELDS for change in changes):
+        # Those just added hear of the assignment instead.
+        recipients = set(await repository.assignee_ids(db, task.id)) - added
+        notified |= notifications.notify(
+            db,
+            recipients,
+            NotificationKind.task_updated,
+            actor_id=principal.user_id,
+            title=task.title,
+            task_id=task.id,
+            board_id=task.board_id,
+        )
+    return Edited(card=True, reminder=reminded, notified=notified)
+
+
+async def update_task(
+    principal: Principal, db: AsyncSession, task_id: UUID, body: schemas.TaskUpdate
+) -> schemas.Task:
+    if _is_personal(body):
+        return await _update_own(principal, db, task_id, body)
+
+    task, target = await locked_writable(principal, db, task_id)
+    if task.version != body.version:
+        raise await _version_conflict(principal, db, task, target.board.name)
+
+    edited = await _edit(principal, db, task, body)
+    if edited.card:
+        await board_service.publish(db, task.board_id, notified=edited.notified)
+    elif edited.reminder:
         await sync.bump(db, tasks_for=[principal.user_id])
     updated = await _task_out(principal, db, task, target.board.name)
     await db.commit()
@@ -571,12 +592,46 @@ async def _leave_board(
     return bool(unassigned or unlabeled)
 
 
+async def _place(
+    principal: Principal,
+    db: AsyncSession,
+    task: models.Task,
+    column: models.BoardColumn,
+    body: schemas.TaskMove,
+    route: tuple[BoardAccess, BoardAccess],
+) -> bool:
+    """Returns False when the card already stands in that place. An anchor on the card itself
+    means staying only in its own column: elsewhere it is an anchor that isn't there."""
+    if body.after_id == task.id and task.column_id == column.id:
+        return False
+    if "after_id" in body.model_fields_set:
+        before, after = await repository.gap_after(db, column.id, body.after_id, moving=task.id)
+    else:
+        before, after = await repository.last_position(db, column.id, excluding=task.id), None
+    if (
+        task.column_id == column.id
+        and (before is None or before < task.position)
+        and (after is None or task.position < after)
+    ):
+        return False
+    boards = None
+    if task.board_id != column.board_id:
+        boards = (route[0].board.name, route[1].board.name)
+        if await _leave_board(principal, db, task, column.board_id):
+            task.version += 1
+    await relocate(db, principal, task, column, key_between(before, after), boards=boards)
+    return True
+
+
 async def move_task(
     principal: Principal, db: AsyncSession, task_id: UUID, body: schemas.TaskMove
 ) -> schemas.Task:
     """No version here on purpose: a move doesn't conflict with an edit of the title, and of
     two moves of one card the last one wins. A move to another board is the exception when it
-    takes labels or assignees off the card: a form opened earlier would save them back."""
+    takes labels or assignees off the card: a form opened earlier would save them back.
+
+    `changes` carry their own version and go in the same transaction, after the card has arrived:
+    so assignees and labels are those of the new board, and nobody who stayed behind is notified."""
     task, source = await readable(principal, db, task_id)
     board_service.require_writable(source)
     found = await repository.get_column(db, body.column_id)
@@ -594,25 +649,18 @@ async def move_task(
     if task.board_id != source.board.id:  # Another move was first, and rights depend on the board.
         source = await board_service.access(principal, db, task.board_id)
         board_service.require_writable(source)
+    edit = body.changes
+    if edit is not None and not _is_personal(edit) and task.version != edit.version:
+        raise await _version_conflict(principal, db, task, source.board.name)
 
-    if body.after_id != task.id:
-        if "after_id" in body.model_fields_set:
-            before, after = await repository.gap_after(db, column.id, body.after_id, moving=task.id)
-        else:
-            before, after = await repository.last_position(db, column.id, excluding=task.id), None
-        in_place = (
-            task.column_id == column.id
-            and (before is None or before < task.position)
-            and (after is None or task.position < after)
-        )
-        if not in_place:
-            boards = None
-            if task.board_id != column.board_id:
-                boards = (source.board.name, target.board.name)
-                if await _leave_board(principal, db, task, column.board_id):
-                    task.version += 1
-            await relocate(db, principal, task, column, key_between(before, after), boards=boards)
-            await board_service.publish(db, source.board.id, target.board.id)
+    relocated = await _place(principal, db, task, column, body, (source, target))
+    edited = Edited(card=False, reminder=False, notified=set())
+    if edit is not None:
+        edited = await _edit(principal, db, task, edit)
+    if relocated or edited.card:
+        await board_service.publish(db, source.board.id, target.board.id, notified=edited.notified)
+    elif edited.reminder:
+        await sync.bump(db, tasks_for=[principal.user_id])
     moved = await _task_out(principal, db, task, target.board.name)
     await db.commit()
     return moved

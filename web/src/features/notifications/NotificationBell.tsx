@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import type { Notification } from "../../api/client";
-import { Avatar, Banner, Button, EmptyState, IconButton, Skeleton, cx } from "../../ui";
+import { Avatar, Button, EmptyState, IconButton, LoadError, Skeleton, cx } from "../../ui";
 import { useCurrentUser } from "../auth/session";
 import { useEventParam } from "../calendar/eventLinks";
 import { formatMoment } from "../tasks/dates";
@@ -97,10 +97,7 @@ function Panel({ onClose, unread }: { onClose: () => void; unread: number }) {
       {isPending && <Skeleton height={64} />}
       {isError && (
         <div className={styles.error}>
-          <Banner tone="error">Не удалось загрузить уведомления</Banner>
-          <Button variant="secondary" onClick={() => void refetch()}>
-            Повторить
-          </Button>
+          <LoadError message="Не удалось загрузить уведомления" onRetry={() => void refetch()} />
         </div>
       )}
       {!isPending && !isError && items.length === 0 && <EmptyState title="Уведомлений пока нет" />}

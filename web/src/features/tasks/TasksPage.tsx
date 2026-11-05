@@ -2,7 +2,7 @@ import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { TaskFilters, TaskSummary } from "../../api/client";
-import { Banner, Button, EmptyState, Panel, SegmentedControl, Skeleton, Switch } from "../../ui";
+import { Button, EmptyState, LoadError, Panel, SegmentedControl, Skeleton, Switch } from "../../ui";
 import { useCurrentUser } from "../auth/session";
 import { BoardCatalog } from "../boards/BoardCatalog";
 import { useBoards } from "../boards/api";
@@ -103,10 +103,7 @@ function DoneGroup({
       {open && isPending && <LoadingRows />}
       {open && isError && (
         <div className={styles.error}>
-          <Banner tone="error">Не удалось загрузить задачи</Banner>
-          <Button variant="secondary" onClick={() => void refetch()}>
-            Повторить
-          </Button>
+          <LoadError message="Не удалось загрузить задачи" onRetry={() => void refetch()} />
         </div>
       )}
       {open && !isPending && !isError && tasks.length === 0 && (
@@ -136,7 +133,7 @@ function DoneGroup({
 
 export function TasksPage() {
   const { data: user } = useCurrentUser();
-  const { data: boards } = useBoards();
+  const { data: boards, isError: boardsFailed, refetch: refetchBoards } = useBoards();
   const { open: openTask } = useTaskParam();
   const [scope, setScope] = useState<Scope>("all");
   const [assignedToMe, setAssignedToMe] = useState(false);
@@ -204,14 +201,18 @@ export function TasksPage() {
           {isPending && <LoadingRows />}
           {isError && (
             <div className={styles.error}>
-              <Banner tone="error">Не удалось загрузить задачи</Banner>
-              <Button variant="secondary" onClick={() => void refetch()}>
-                Повторить
-              </Button>
+              <LoadError message="Не удалось загрузить задачи" onRetry={() => void refetch()} />
             </div>
           )}
           {!isPending && !isError && tasks.length === 0 && (
-            <EmptyState title="Задач нет. Добавьте первую" />
+            <EmptyState
+              title="Задач нет. Добавьте первую"
+              action={
+                <Button variant="secondary" onClick={() => openTask(NEW_TASK)}>
+                  Новая задача
+                </Button>
+              }
+            />
           )}
           {TASK_GROUPS.map((group) => (
             <Group
@@ -243,7 +244,11 @@ export function TasksPage() {
         <aside className={styles.aside}>
           <Panel>
             <h2 className={styles.asideTitle}>Мои доски</h2>
-            <BoardCatalog boards={boards} />
+            <BoardCatalog
+              boards={boards}
+              failed={boardsFailed}
+              onRetry={() => void refetchBoards()}
+            />
             <p className={styles.total}>
               {tasks.length} {pluralize(tasks.length, "задача", "задачи", "задач")} в работе
             </p>

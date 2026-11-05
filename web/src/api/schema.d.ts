@@ -1534,7 +1534,8 @@ export interface components {
     };
     /**
      * TaskMove
-     * @description `after_id`: null means the start of the column, absent means its end.
+     * @description `after_id`: null means the start of the column, absent means its end. `changes` are saved
+     *     with the move or not at all, and are checked against the board the card arrives at.
      */
     TaskMove: {
       /**
@@ -1544,6 +1545,7 @@ export interface components {
       column_id: string;
       /** After Id */
       after_id?: string | null;
+      changes?: components["schemas"]["TaskUpdate"] | null;
     };
     /** TaskPage */
     TaskPage: {

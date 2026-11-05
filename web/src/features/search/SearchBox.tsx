@@ -2,7 +2,7 @@ import { Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { SearchResults } from "../../api/client";
-import { Banner, Dialog, IconButton, Spinner, TextField, cx } from "../../ui";
+import { Dialog, IconButton, LoadError, Spinner, TextField, cx } from "../../ui";
 import { useCurrentUser } from "../auth/session";
 import { useSearch } from "../calendar/api";
 import { useEventParam } from "../calendar/eventLinks";
@@ -28,10 +28,11 @@ type ResultsProps = {
   timeZone: string;
   onEvent: (id: string, occurrence?: string) => void;
   onTask: (id: string) => void;
+  onRetry: () => void;
 };
 
-function Results({ results, failed, timeZone, onEvent, onTask }: ResultsProps) {
-  if (failed) return <Banner tone="error">Не удалось выполнить поиск</Banner>;
+function Results({ results, failed, timeZone, onEvent, onTask, onRetry }: ResultsProps) {
+  if (failed) return <LoadError message="Не удалось выполнить поиск" onRetry={onRetry} />;
   if (!results) {
     return (
       <div className={styles.status}>
@@ -108,7 +109,7 @@ function SearchField({ dropdown = false, onChosen }: FieldProps) {
   const shown = query !== "" && (!dropdown || expanded);
   const debounced = useDebounced(query, DEBOUNCE_MS);
   // Blank text, or a closed dropdown, sends no request.
-  const { data, isError } = useSearch(shown ? debounced : "");
+  const { data, isError, refetch } = useSearch(shown ? debounced : "");
 
   useEffect(() => {
     if (!dropdown || !expanded) return;
@@ -154,6 +155,7 @@ function SearchField({ dropdown = false, onChosen }: FieldProps) {
             timeZone={timeZone}
             onEvent={(id, occurrence) => choose(() => openEvent(id, occurrence))}
             onTask={(id) => choose(() => openTask(id))}
+            onRetry={() => void refetch()}
           />
         </div>
       )}

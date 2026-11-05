@@ -7,6 +7,7 @@ import { useSearchParams } from "react-router";
  */
 const TASK_PARAM = "task";
 const BOARD_PARAM = "board";
+const COLUMN_PARAM = "column";
 export const NEW_TASK = "new";
 
 export function newTaskSearch(boardId?: string): string {
@@ -19,10 +20,11 @@ export function useTaskParam() {
   const [params, setParams] = useSearchParams();
 
   const open = useCallback(
-    (task: string, boardId?: string) => {
+    (task: string, boardId?: string, columnId?: string) => {
       setParams((current) => {
         current.set(TASK_PARAM, task);
         if (boardId) current.set(BOARD_PARAM, boardId);
+        if (columnId) current.set(COLUMN_PARAM, columnId);
         return current;
       });
     },
@@ -33,6 +35,7 @@ export function useTaskParam() {
     setParams((current) => {
       current.delete(TASK_PARAM);
       current.delete(BOARD_PARAM);
+      current.delete(COLUMN_PARAM);
       return current;
     });
   }, [setParams]);
@@ -40,6 +43,7 @@ export function useTaskParam() {
   return {
     task: params.get(TASK_PARAM),
     boardId: params.get(BOARD_PARAM) ?? undefined,
+    columnId: params.get(COLUMN_PARAM) ?? undefined,
     open,
     close,
   };

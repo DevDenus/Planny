@@ -8,7 +8,9 @@ import {
   Button,
   Checkbox,
   Dialog,
+  ErrorBoundary,
   IconButton,
+  LoadError,
   Menu,
   PasswordField,
   SegmentedControl,
@@ -18,7 +20,8 @@ import {
   ToastProvider,
   useToast,
 } from "./index";
-import type { BannerProps, MenuItem } from "./index";
+import type { MenuItem } from "./index";
+import type { BannerProps } from "./Banner";
 
 describe("Button", () => {
   it("is disabled and busy while loading", () => {
@@ -124,6 +127,18 @@ describe("Banner", () => {
     render(<Banner tone={tone}>Сообщение</Banner>);
 
     expect(screen.getByRole(role)).toHaveTextContent("Сообщение");
+  });
+});
+
+describe("LoadError", () => {
+  it("shows the message and retries on click", async () => {
+    const user = userEvent.setup();
+    const onRetry = vi.fn();
+    render(<LoadError message="Не удалось загрузить задачи" onRetry={onRetry} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Не удалось загрузить задачи");
+    await user.click(screen.getByRole("button", { name: "Повторить" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -512,5 +527,24 @@ describe("Menu", () => {
     await user.click(trigger);
     await user.click(screen.getByRole("menuitem", { name: "Открыть" }));
     expect(parentClick).not.toHaveBeenCalled();
+  });
+});
+
+describe("ErrorBoundary", () => {
+  function Broken(): never {
+    throw new Error("render failed");
+  }
+
+  it("replaces a failed render with a way to load the page again", () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    render(
+      <ErrorBoundary>
+        <Broken />
+      </ErrorBoundary>,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Что-то пошло не так");
+    expect(screen.getByRole("button", { name: "Повторить" })).toBeInTheDocument();
+    vi.restoreAllMocks();
   });
 });

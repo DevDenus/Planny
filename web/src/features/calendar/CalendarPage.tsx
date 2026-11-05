@@ -3,7 +3,7 @@ import { useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router";
 
 import type { CalendarItem } from "../../api/client";
-import { Banner, Button, SegmentedControl } from "../../ui";
+import { Button, LoadError, SegmentedControl } from "../../ui";
 import { useCurrentUser } from "../auth/session";
 import { fromLocalInput, localDate } from "../tasks/dates";
 import { useTaskParam } from "../tasks/taskLinks";
@@ -66,10 +66,17 @@ export function CalendarPage() {
   const phone = useIsPhone();
   const shownView = phone ? "month" : view;
   const { first, end } = viewRange(shownView, day);
-  const { data: items, isError } = useCalendarItems({
+  const {
+    data: items,
+    isError,
+    isPlaceholderData,
+    refetch,
+  } = useCalendarItems({
     from: fromLocalInput(first, "00:00", timeZone),
     to: fromLocalInput(end, "00:00", timeZone),
   });
+  // The grid keeps the previous period while the new one loads; that is not this period's answer.
+  const loaded = items !== undefined && !isError && !isPlaceholderData;
   const { data: categories } = useCategories();
   const { filters } = useCalendarFilters();
   const { open: openEvent, create } = useEventParam();
@@ -91,7 +98,9 @@ export function CalendarPage() {
         {!phone && <SegmentedControl label="Вид" value={view} options={VIEWS} onChange={setView} />}
         <FiltersButton />
       </PeriodHeader>
-      {isError && <Banner tone="error">Не удалось загрузить календарь</Banner>}
+      {isError && (
+        <LoadError message="Не удалось загрузить календарь" onRetry={() => void refetch()} />
+      )}
       <div className={styles.body}>
         {phone ? (
           <CompactMonth
@@ -115,7 +124,7 @@ export function CalendarPage() {
             onOpenItem={openItem}
           />
         )}
-        <DayPanel day={day} items={shown} colors={colors} timeZone={timeZone} />
+        <DayPanel day={day} items={shown} loaded={loaded} colors={colors} timeZone={timeZone} />
       </div>
       {phone && (
         <Button

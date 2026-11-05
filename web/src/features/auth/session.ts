@@ -14,7 +14,9 @@ export function useSession() {
   const { data, error, isPending, refetch } = useCurrentUser();
   // React Query keeps the last data after a failed refetch, so data alone proves nothing.
   const signedOut = error instanceof ApiError && error.status === 401;
-  return { user: signedOut ? undefined : data, signedOut, isPending, refetch };
+  // A user who was here and got a 401 lost the session: logging out clears the cache first.
+  const expired = signedOut && data !== undefined;
+  return { user: signedOut ? undefined : data, signedOut, expired, isPending, refetch };
 }
 
 export function useLogin() {
