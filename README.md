@@ -25,6 +25,16 @@ docker compose --project-directory deploy -f deploy/compose.yaml -f deploy/compo
 
 Остальные команды оператора описаны в [api.md](docs/api.md#6-cli), резервные копии в [deploy/backup/README.md](deploy/backup/README.md).
 
+## Сервер
+
+Образы собираются на dev-машине и едут на сервер одним файлом, клон репозитория там не нужен.
+
+```bash
+make release VERSION=0.1.0
+```
+
+Команда собирает текущую рабочую копию в `dist/planny-0.1.0.tar`, закоммитена она или нет. Номер версии должен расти с каждым комплектом, который ставится на сервер. Установка, обновление, аккаунты и проверки описаны в [docs/deploy.md](docs/deploy.md).
+
 ## Разработка
 
 | Команда | Что делает |
@@ -37,6 +47,9 @@ docker compose --project-directory deploy -f deploy/compose.yaml -f deploy/compo
 | `make openapi` | Обновляет `backend/openapi.json` и клиент API в `web/src/api/`. Нужна после изменения маршрутов, иначе CI упадёт |
 | `make logs` | Логи контейнеров |
 | `make down` | Останавливает контейнеры, данные остаются в томе |
-| `make db-reset` | Пересоздаёт базу разработки после изменения схемы, все данные в ней теряются |
+| `make db-reset` | Пересоздаёт базу разработки, все данные в ней теряются. Один раз нужна после перехода на миграции: старая база создана без `alembic_version` |
+| `make migration name=...` | Создаёт миграцию по разнице между моделями и базой разработки. Файл нужно просмотреть |
+| `make release VERSION=x.y.z` | Комплект для сервера, см. [docs/deploy.md](docs/deploy.md) |
+| `make trial-restore` | Пробное восстановление самой свежей копии во временный проект |
 
 Для работы над интерфейсом удобнее `npm run dev` в папке `web/`: Vite открывается на <http://localhost:5173> и проксирует `/bff` в запущенный Compose.

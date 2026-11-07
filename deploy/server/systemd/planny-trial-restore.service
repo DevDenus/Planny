@@ -1,0 +1,13 @@
+# @PLANNY_ROOT@ is replaced with the real install root by deploy/server/update.sh.
+[Unit]
+Description=Planny trial restore of the newest backup into a throwaway project
+After=docker.service planny-backup.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# The throwaway database and the migrations take a while on a small server.
+TimeoutStartSec=30min
+Environment=PLANNY_ENV=prod
+EnvironmentFile=@PLANNY_ROOT@/.env
+ExecStart=@PLANNY_ROOT@/current/deploy/backup/trial-restore.sh

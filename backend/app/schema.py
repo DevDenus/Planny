@@ -1,7 +1,11 @@
-"""Until stage 8 the models are the schema and nothing migrates: docs/roadmap.md has the rule.
+"""Creates the whole schema straight from the models, without Alembic.
 
-This creates what is missing and never alters what exists, so after a change of the models the
-development database is recreated with `make db-reset`.
+Production and the development stack create the schema with `alembic upgrade head`. Tests use
+`create_all` through this module because it is faster than running the migration for every run.
+CI runs `alembic upgrade head` and `alembic check` on a separate database, which keeps the
+migration and the models in sync.
+
+This creates what is missing and never alters what exists.
 """
 
 import asyncio

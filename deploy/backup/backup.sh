@@ -2,7 +2,9 @@
 # Writes a custom-format pg_dump of the planny database to a new file.
 #
 # Usage: backup.sh [target-dir]
-# Environment: PLANNY_ENV (dev or prod, default dev), BACKUP_DIR, BACKUP_KEEP_DAYS (default 14).
+# Environment: PLANNY_ENV (dev or prod, default dev), BACKUP_DIR, BACKUP_KEEP_DAYS (default 14),
+# BACKUP_MOUNT. When BACKUP_MOUNT is set, it must be a mount point and the target directory must be
+# inside it, so a missing second disk stops the backup instead of filling the system disk.
 set -euo pipefail
 umask 077
 
@@ -31,6 +33,16 @@ trap 'exit 143' TERM
 
 [[ "$KEEP_DAYS" =~ ^[1-9][0-9]*$ ]] \
   || die "BACKUP_KEEP_DAYS должно быть целым числом больше нуля, получено: $KEEP_DAYS"
+
+# Checked before anything is created: mkdir on an unmounted path would write to the system disk.
+if [[ -n "${BACKUP_MOUNT:-}" ]]; then
+  mountpoint -q -- "$BACKUP_MOUNT" \
+    || die "$BACKUP_MOUNT не смонтирован, копия не сделана. Проверьте второй диск"
+  mount_root="$(realpath -- "$BACKUP_MOUNT")"
+  target_real="$(realpath -m -- "$TARGET_DIR")"
+  [[ "$target_real/" == "${mount_root%/}/"* ]] \
+    || die "папка копий $target_real не внутри $BACKUP_MOUNT, копия не сделана"
+fi
 
 mkdir -p -- "$TARGET_DIR"
 TARGET_DIR="$(cd -- "$TARGET_DIR" && pwd)"
