@@ -2,7 +2,6 @@
 .github
 backend
 deploy
-design
 docs
 **/.venv
 **/.mypy_cache

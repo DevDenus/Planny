@@ -1,6 +1,6 @@
 /*
- * Style tokens. Colours are sampled from design/references. The dark theme is the only one
- * in the MVP, but components use only these names, so a light theme means redefining them.
+ * Style tokens. The dark theme is the only one,
+ * but components use only these names, so a light theme means redefining them.
  */
 :root {
   color-scheme: dark;

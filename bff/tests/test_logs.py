@@ -1,4 +1,4 @@
-"""The logs hold no tokens, passwords or personal content: see the logs line in requirements.md."""
+"""The logs hold no tokens, passwords or personal content: see the logs line in docs/features.md."""
 
 import json
 import logging
