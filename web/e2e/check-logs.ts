@@ -13,7 +13,7 @@ const FORBIDDEN: [string, RegExp][] = [
   ["строка запроса", /[?&](q|login|password)=/],
 ];
 
-/** Runs once after every test, while the stack is still up: see the logs line in requirements.md. */
+/** Runs once after every test, while the stack is still up: see the logs line in docs/features.md. */
 export default function checkLogs(): void {
   const logs = execFileSync("docker", [...COMPOSE, "logs", "--no-color", "--no-log-prefix"], {
     encoding: "utf8",
