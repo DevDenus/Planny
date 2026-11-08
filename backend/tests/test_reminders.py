@@ -7,11 +7,13 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, update
 
+from app.core.config import get_settings
 from app.core.db import get_sessionmaker
 from app.identity.models import User
 from app.notifications.models import Notification, NotificationKind
@@ -744,7 +746,10 @@ async def test_a_deadline_already_behind_has_nothing_to_announce(client: AsyncCl
 async def test_a_deadline_set_for_today_is_announced_even_after_nine(client: AsyncClient) -> None:
     _, headers = await signed_in(client, "sasha")
     now = datetime.now(UTC)
-    await create_task(client, headers, due_date=now.date().isoformat())
+    # The user's today, not UTC's: from 21:00 UTC Moscow is a day ahead, and yesterday's date
+    # would be settled at once as a deadline already behind.
+    today = now.astimezone(ZoneInfo(get_settings().default_timezone)).date()
+    await create_task(client, headers, due_date=today.isoformat())
 
     await announce(now + 2 * DAY)
 

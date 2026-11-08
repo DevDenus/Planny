@@ -1,9 +1,32 @@
-# Server. The API port is bound to the LAN address only: Docker writes iptables rules past
-# ufw, so a bare 8000:8000 would open it on every interface, including the external one.
+# Server. The images come from deploy/release.sh and are loaded with `docker load`, so nothing is
+# built or pulled here, and PLANNY_VERSION in .env names the release that runs.
+#
+# The API port is bound to the LAN address only: Docker writes iptables rules past ufw, so a bare
+# 8000:8000 would open it on every interface, including the external one. The BFF has no host port
+# at all: Caddy reaches it as planny-bff:8080 over the shared external network `edge`.
+x-release-backend: &release-backend
+  image: planny-backend:${PLANNY_VERSION:?}
+  build: !reset null
+  pull_policy: never
+
 services:
-  bff:
-    ports:
-      - "127.0.0.1:8080:8080"
+  migrate:
+    <<: *release-backend
   api:
+    <<: *release-backend
     ports:
       - "${LAN_IP:?}:8000:8000"
+  worker:
+    <<: *release-backend
+  bff:
+    image: planny-bff:${PLANNY_VERSION:?}
+    build: !reset null
+    pull_policy: never
+    networks:
+      edge:
+        aliases: [planny-bff]
+
+networks:
+  edge:
+    external: true
+    name: edge

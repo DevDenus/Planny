@@ -38,6 +38,19 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run ruff check .
       - run: uv run mypy
+      # A separate database, so that the create_all of pytest cannot mask a gap in the migration.
+      - name: Create the migrations database
+        run: psql -h 127.0.0.1 -p 55432 -U planny -d planny_test -c 'CREATE DATABASE planny_migrations'
+        env:
+          PGPASSWORD: planny
+      - name: Migrations apply to an empty database
+        run: uv run alembic upgrade head
+        env:
+          PLANNY_DATABASE_URL: postgresql+asyncpg://planny:planny@127.0.0.1:55432/planny_migrations
+      - name: Migrations match the models
+        run: uv run alembic check
+        env:
+          PLANNY_DATABASE_URL: postgresql+asyncpg://planny:planny@127.0.0.1:55432/planny_migrations
       - run: uv run pytest
       - name: OpenAPI snapshot is up to date
         run: uv run python scripts/export_openapi.py --check
@@ -94,4 +107,6 @@ jobs:
       - run: docker compose --project-directory deploy -f deploy/compose.yaml -f deploy/compose.prod.yaml config -q
         env:
           LAN_IP: 192.0.2.10
+          PLANNY_VERSION: 0.0.0
       - run: docker compose --project-directory deploy -f deploy/compose.yaml -f deploy/compose.dev.yaml build
+      - run: shellcheck deploy/release.sh deploy/server/*.sh deploy/backup/*.sh

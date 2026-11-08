@@ -1,0 +1,11 @@
+# @PLANNY_ROOT@ is replaced with the real install root by deploy/server/update.sh.
+[Unit]
+Description=Planny database backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+Environment=PLANNY_ENV=prod
+EnvironmentFile=@PLANNY_ROOT@/.env
+ExecStart=@PLANNY_ROOT@/current/deploy/backup/backup.sh

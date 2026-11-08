@@ -3,8 +3,9 @@
 # development is the one that runs on the server.
 name: planny
 
+# The tag is the release version on the server (deploy/release.sh) and `dev` everywhere else.
 x-backend-image: &backend-image
-  image: planny-backend
+  image: planny-backend:${PLANNY_VERSION:-dev}
   build:
     context: ../backend
 
@@ -51,7 +52,7 @@ services:
 
   migrate:
     <<: [*backend-image, *logging]
-    command: ["python", "-m", "app.schema"]
+    command: ["alembic", "upgrade", "head"]
     environment: *database-env
     networks: [backend]
     depends_on:
@@ -84,7 +85,7 @@ services:
 
   bff:
     <<: *logging
-    image: planny-bff
+    image: planny-bff:${PLANNY_VERSION:-dev}
     build:
       context: ..
       dockerfile: bff/Dockerfile
