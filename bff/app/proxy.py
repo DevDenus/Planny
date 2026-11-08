@@ -21,12 +21,19 @@ ALLOWED_PREFIXES = frozenset(
         "tasks",
         "notifications",
         "sync",
+        "assistant",
     }
 )
 ALLOWED_PATHS = frozenset({"auth/change-password"})
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 MAX_BODY_BYTES = 1024 * 1024
+# A recording for the assistant. The same limit as MAX_AUDIO_BYTES of the backend.
+MAX_AUDIO_BODY_BYTES = 8 * 1024 * 1024
+AUDIO_PATH = "assistant/transcribe"
+# The assistant waits for a language model, which takes far longer than the rest of the API.
+DEFAULT_TIMEOUT = httpx.Timeout(30, connect=5)
+ASSISTANT_TIMEOUT = httpx.Timeout(90, connect=5)
 
 HOP_BY_HOP = frozenset(
     {
@@ -93,12 +100,20 @@ def upstream_headers(request: Request, session_token: str) -> dict[str, str]:
     return headers
 
 
-async def read_body(request: Request) -> bytes:
+def body_limit(path: str) -> int:
+    return MAX_AUDIO_BODY_BYTES if path == AUDIO_PATH else MAX_BODY_BYTES
+
+
+def upstream_timeout(path: str) -> httpx.Timeout:
+    return ASSISTANT_TIMEOUT if path.split("/")[0] == "assistant" else DEFAULT_TIMEOUT
+
+
+async def read_body(request: Request, limit: int = MAX_BODY_BYTES) -> bytes:
     """Counts while reading, because a chunked request has no Content-Length to check."""
     body = bytearray()
     async for chunk in request.stream():
         body += chunk
-        if len(body) > MAX_BODY_BYTES:
+        if len(body) > limit:
             raise BodyTooLarge
     return bytes(body)
 

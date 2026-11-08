@@ -7,6 +7,7 @@ export const SYNC_KEY = ["sync"] as const;
 export const BOARDS_KEY = ["boards"] as const;
 export const TASKS_KEY = ["tasks"] as const;
 export const CALENDAR_KEY = ["calendar"] as const;
+export const ASSISTANT_KEY = ["assistant"] as const;
 export const NOTIFICATIONS_KEY = ["notifications"] as const;
 
 const SESSION_ERRORS = new Set(["unauthorized", "password_change_required"]);

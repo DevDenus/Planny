@@ -68,6 +68,13 @@ KEY_ACCESS: dict[tuple[str, str], frozenset[Scope] | None] = {
     ("POST", "/api/v1/notifications/read-all"): SESSION_ONLY,
     ("POST", "/api/v1/notifications/{notification_id}/read"): SESSION_ONLY,
     ("GET", "/api/v1/sync"): NOTIFICATIONS_READ,
+    ("GET", "/api/v1/assistant/status"): SESSION_ONLY,
+    ("POST", "/api/v1/assistant/transcribe"): SESSION_ONLY,
+    ("GET", "/api/v1/assistant/chats"): SESSION_ONLY,
+    ("POST", "/api/v1/assistant/chats"): SESSION_ONLY,
+    ("GET", "/api/v1/assistant/chats/{chat_id}"): SESSION_ONLY,
+    ("DELETE", "/api/v1/assistant/chats/{chat_id}"): SESSION_ONLY,
+    ("POST", "/api/v1/assistant/chats/{chat_id}/messages"): SESSION_ONLY,
     **dict.fromkeys(EVENT_LINK_ROUTES, frozenset({Scope.events_write, Scope.tasks_write})),
     **{
         (method, path): TASKS_READ if method == "GET" else TASKS_WRITE

@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router";
 
+import { AssistantPage } from "./features/assistant/AssistantPage";
 import { ChangePasswordPage } from "./features/auth/ChangePasswordPage";
 import { LoginPage } from "./features/auth/LoginPage";
 import { RequireSession } from "./features/auth/RequireSession";
@@ -24,6 +25,8 @@ export function App() {
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/boards" element={<BoardsPage />} />
             <Route path="/boards/:boardId" element={<BoardPage />} />
+            <Route path="/assistant" element={<AssistantPage />} />
+            <Route path="/assistant/:chatId" element={<AssistantPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
         </Route>

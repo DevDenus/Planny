@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import {
   ApiError,
@@ -199,7 +199,7 @@ function changes(
 }
 
 /** The draft reads in the viewer's zone, `eventZone` is the one the series repeats by. */
-function createBody(
+export function createBody(
   draft: EventDraft,
   timeZone: string,
   id: string,
@@ -282,10 +282,34 @@ export type EventFormProps = {
   timeZone: string;
   /** The event was deleted in the background: the typed text stays, and the form says so. */
   gone?: boolean;
+  /** What the fields start with when it differs from `initial`, the base an event is compared with. */
+  proposed?: EventDraft;
+  /** The id of a new event, the form makes its own without one. */
+  newId?: string;
+  /** The form sits in the page, not in a dialog, and has only the save button. */
+  inline?: boolean;
+  submitLabel?: string;
   onClose: () => void;
+  /** Called with the fields on every edit, and once at the start. */
+  onDraftChange?: (draft: EventDraft) => void;
+  /** Called with what was saved instead of `onClose`. */
+  onSaved?: (saved: EventDraft) => void;
 };
 
-export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: EventFormProps) {
+export function EventForm({
+  event,
+  initial,
+  proposed,
+  newId: givenId,
+  taskId,
+  timeZone,
+  gone,
+  inline,
+  submitLabel,
+  onClose,
+  onDraftChange,
+  onSaved,
+}: EventFormProps) {
   const { data: user } = useCurrentUser();
   const { data: users } = useUsers(true);
   const { data: categories } = useCategories();
@@ -293,9 +317,10 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
   const update = useUpdateEvent(event?.id ?? "");
   const link = useLinkEvent(taskId ?? "");
   const toast = useToast();
-  const [newId] = useState(() => crypto.randomUUID());
+  const [madeId] = useState(() => crypto.randomUUID());
+  const newId = givenId ?? madeId;
   const [base, setBase] = useState(initial);
-  const [draft, setDraft] = useState(initial);
+  const [draft, setDraft] = useState(proposed ?? initial);
   const [version, setVersion] = useState(event?.version ?? 0);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [failure, setFailure] = useState<string>();
@@ -303,6 +328,15 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
   const [saving, setSaving] = useState(false);
   const [removed, setRemoved] = useState(false);
   const form = useFocusInvalid(errors);
+
+  useEffect(() => {
+    onDraftChange?.(draft);
+  }, [draft, onDraftChange]);
+
+  const finish = (saved: EventDraft) => {
+    if (onSaved) onSaved(saved);
+    else onClose();
+  };
 
   const set = (change: Partial<EventDraft>) => {
     setDraft((current) => ({ ...current, ...change }));
@@ -358,7 +392,7 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
           }
         }
       }
-      onClose();
+      finish(draft);
     } catch (error) {
       fail(error);
     } finally {
@@ -374,7 +408,7 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
     setSaving(true);
     try {
       await create.mutateAsync(createBody(draft, timeZone, newId, event?.timezone));
-      onClose();
+      finish(draft);
     } catch (error) {
       fail(error);
     } finally {
@@ -389,24 +423,23 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
     if (Object.keys(found).length === 0) void save(version);
   };
 
+  const submitButton = (
+    <Button type="submit" form="event-form" loading={saving}>
+      {submitLabel ?? (event ? "Сохранить" : "Создать")}
+    </Button>
+  );
+
   const footer = (
     <>
       <Button variant="secondary" onClick={onClose}>
         Отмена
       </Button>
-      <Button type="submit" form="event-form" loading={saving}>
-        {event ? "Сохранить" : "Создать"}
-      </Button>
+      {submitButton}
     </>
   );
 
-  return (
-    <Dialog
-      title={event ? "Изменить событие" : "Новое событие"}
-      width={640}
-      onClose={onClose}
-      footer={footer}
-    >
+  const content = (
+    <>
       <form id="event-form" ref={form} className={styles.form} onSubmit={submit} noValidate>
         {failure && <Banner tone="error">{failure}</Banner>}
         {(gone || removed) && (
@@ -569,6 +602,7 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
           onChange={(change) => set({ description: change.target.value })}
         />
       </form>
+      {inline && <div className={styles.inlineFooter}>{submitButton}</div>}
 
       {conflict && (
         <ConflictDialog
@@ -589,6 +623,18 @@ export function EventForm({ event, initial, taskId, timeZone, gone, onClose }: E
           }}
         />
       )}
+    </>
+  );
+
+  if (inline) return content;
+  return (
+    <Dialog
+      title={event ? "Изменить событие" : "Новое событие"}
+      width={640}
+      onClose={onClose}
+      footer={footer}
+    >
+      {content}
     </Dialog>
   );
 }

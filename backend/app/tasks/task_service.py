@@ -1,5 +1,5 @@
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import date, datetime, time
 from typing import Any, Literal, NamedTuple
 from uuid import UUID
@@ -141,6 +141,11 @@ async def _relocked(db: AsyncSession, task_id: UUID) -> models.Task:
 async def get_task(principal: Principal, db: AsyncSession, task_id: UUID) -> schemas.Task:
     task, target = await readable(principal, db, task_id)
     return await _task_out(principal, db, task, target.board.name)
+
+
+async def deleted_flags(db: AsyncSession, task_ids: Collection[UUID]) -> dict[UUID, bool]:
+    """For ids that name a task: whether it is deleted. Other ids are absent from the result."""
+    return await repository.deleted_flags(db, task_ids)
 
 
 async def list_tasks(

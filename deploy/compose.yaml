@@ -65,6 +65,10 @@ services:
     environment:
       <<: *database-env
       PLANNY_BFF_SHARED_SECRET: ${BFF_SHARED_SECRET:?}
+      PLANNY_LLM_URL: ${LLM_URL:-}
+      PLANNY_LLM_MODEL: ${LLM_MODEL:-}
+      PLANNY_STT_URL: ${STT_URL:-}
+      PLANNY_STT_MODEL: ${STT_MODEL:-Systran/faster-whisper-medium}
     networks: [lan, backend]
     healthcheck:
       test:

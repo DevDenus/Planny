@@ -39,6 +39,13 @@ export type CalendarItem = EventOccurrence | TaskDeadline;
 export type BusyInterval = Schemas["BusyInterval"];
 export type UserAvailability = Schemas["UserAvailability"];
 export type SearchResults = Schemas["SearchResults"];
+export type AssistantStatus = Schemas["AssistantStatus"];
+export type AssistantChat = Schemas["Chat"];
+export type AssistantChatSummary = Schemas["ChatSummary"];
+export type AssistantMessage = Schemas["Message"];
+export type AssistantCard = NonNullable<AssistantChat["card"]>;
+export type TaskCard = Schemas["TaskCard"];
+export type EventCard = Schemas["EventCard"];
 
 interface ApiErrorBody {
   error: {

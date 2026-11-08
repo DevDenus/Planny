@@ -3,7 +3,7 @@ TEST_COMPOSE = docker compose -f deploy/compose.test.yaml
 # -p because `down -v` must never follow a COMPOSE_PROJECT_NAME from the shell to the dev volume.
 E2E_COMPOSE = docker compose -p planny-e2e --project-directory deploy -f deploy/compose.yaml -f deploy/compose.e2e.yaml
 
-.PHONY: env up down db-reset logs migration test-db test test-backend test-bff test-web e2e restore-check trial-restore release lint format openapi client
+.PHONY: env up down db-reset logs migration test-db test test-backend test-bff test-web e2e restore-check trial-restore release lint format openapi client assistant-eval
 
 deploy/.env:
 	@umask 077; { \
@@ -12,6 +12,10 @@ deploy/.env:
 		echo "COOKIE_KEY=$$(openssl rand -base64 32 | tr '+/' '-_')"; \
 		echo "COOKIE_SECURE=false"; \
 		echo "TRUST_FORWARDED_FOR=false"; \
+		echo "LLM_URL=http://192.168.0.105:8081/v1"; \
+		echo "LLM_MODEL="; \
+		echo "STT_URL=http://192.168.0.105:8082/v1"; \
+		echo "STT_MODEL=Systran/faster-whisper-medium"; \
 	} > $@
 	@echo "Wrote $@"
 
@@ -88,3 +92,6 @@ openapi:
 
 client:
 	cd web && npm run gen:api
+
+assistant-eval:
+	cd backend && uv run python scripts/assistant_eval.py $(ARGS)
