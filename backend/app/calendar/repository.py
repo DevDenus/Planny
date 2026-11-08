@@ -76,6 +76,13 @@ async def get_event(db: AsyncSession, event_id: UUID) -> Event | None:
     return await db.get(Event, event_id)
 
 
+async def deleted_flags(db: AsyncSession, event_ids: Collection[UUID]) -> dict[UUID, bool]:
+    rows = await db.execute(
+        select(Event.id, Event.deleted_at.is_not(None)).where(Event.id.in_(event_ids))
+    )
+    return dict(rows.all())
+
+
 async def event_of_participant(
     db: AsyncSession, event_id: UUID, user_id: UUID
 ) -> tuple[Event, UUID | None] | None:

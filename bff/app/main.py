@@ -20,7 +20,6 @@ from app.logs import configure_logging, request_id_var
 from app.middleware import RequestContextMiddleware
 from app.ratelimit import LoginRateLimiter
 
-UPSTREAM_TIMEOUT = httpx.Timeout(30, connect=5)
 PROXIED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 
 
@@ -70,7 +69,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
         async with httpx.AsyncClient(
-            base_url=settings.api_url, timeout=UPSTREAM_TIMEOUT, transport=transport
+            base_url=settings.api_url, timeout=proxy.DEFAULT_TIMEOUT, transport=transport
         ) as client:
             app.state.api = client
             yield
@@ -149,12 +148,13 @@ def create_app(
 
     async def forward(request: Request, session: OpenedSession, path: str) -> Response:
         try:
-            body = await proxy.read_body(request)
+            body = await proxy.read_body(request, proxy.body_limit(path))
             upstream = await api(request).request(
                 request.method,
                 proxy.upstream_url(path, request),
                 content=body,
                 headers=proxy.upstream_headers(request, session.token),
+                timeout=proxy.upstream_timeout(path),
             )
         except proxy.BodyTooLarge:
             return too_large()

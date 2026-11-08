@@ -4,6 +4,7 @@ from alembic import context
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from app.assistant import models as assistant_models
 from app.calendar import models as calendar_models
 from app.core.config import get_settings
 from app.core.db import Base
@@ -14,6 +15,7 @@ from app.tasks import models as task_models
 
 # Imported for the side effect of registering the tables on Base.metadata.
 __all__ = [
+    "assistant_models",
     "calendar_models",
     "identity_models",
     "notification_models",

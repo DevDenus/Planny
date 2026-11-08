@@ -5,6 +5,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
 from sqlalchemy import text
 
+from app.assistant.router import router as assistant_router
 from app.calendar.router import router as calendar_router
 from app.core.config import get_settings
 from app.core.db import DbSession, get_engine
@@ -55,6 +56,7 @@ def create_app() -> FastAPI:
     api.include_router(tasks_router)
     api.include_router(calendar_router)
     api.include_router(notifications_router)
+    api.include_router(assistant_router)
 
     @api.get("/health", tags=["system"])
     async def health(db: DbSession) -> Health:

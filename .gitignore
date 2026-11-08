@@ -229,3 +229,6 @@ node_modules/
 # Playwright
 web/test-results/
 web/playwright-report/
+
+# Assistant eval cache (audio, voices, reports)
+backend/.eval-cache/

@@ -67,6 +67,13 @@ EXPECTED_ROUTES = {
     ("POST", "/api/v1/notifications/read-all"),
     ("POST", "/api/v1/notifications/{notification_id}/read"),
     ("GET", "/api/v1/sync"),
+    ("GET", "/api/v1/assistant/status"),
+    ("POST", "/api/v1/assistant/transcribe"),
+    ("GET", "/api/v1/assistant/chats"),
+    ("POST", "/api/v1/assistant/chats"),
+    ("GET", "/api/v1/assistant/chats/{chat_id}"),
+    ("DELETE", "/api/v1/assistant/chats/{chat_id}"),
+    ("POST", "/api/v1/assistant/chats/{chat_id}/messages"),
 }
 
 

@@ -16,6 +16,10 @@ export default defineConfig({
     timezoneId: "Europe/Moscow",
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
+    // A made-up microphone for the voice input of the assistant, with no permission prompt.
+    launchOptions: {
+      args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
+    },
   },
   projects: [
     { name: "desktop", use: { viewport: { width: 1440, height: 900 } } },

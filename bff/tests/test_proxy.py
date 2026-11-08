@@ -97,7 +97,16 @@ def test_dot_segments_are_refused(path: str) -> None:
 
 @pytest.mark.parametrize(
     "path",
-    ["me", "users", "sync", "boards/1/columns", "calendar/items", "notifications/read-all"],
+    [
+        "me",
+        "users",
+        "sync",
+        "boards/1/columns",
+        "calendar/items",
+        "notifications/read-all",
+        "assistant/status",
+        "assistant/chats/1/messages",
+    ],
 )
 def test_allowed_prefixes_are_proxied(client: TestClient, fake_api: FakeApi, path: str) -> None:
     sign_in(client)
@@ -198,6 +207,48 @@ def test_oversized_body_is_refused(client: TestClient, fake_api: FakeApi) -> Non
     )
     assert response.status_code == 413
     assert len(fake_api.requests) == calls
+
+
+def test_a_recording_may_be_larger_than_other_bodies(client: TestClient, fake_api: FakeApi) -> None:
+    csrf = sign_in(client)
+    headers = {"X-CSRF-Token": csrf, "Content-Type": "audio/webm"}
+
+    allowed = client.post(
+        "/bff/api/v1/assistant/transcribe", content=b"x" * (2 * 1024 * 1024), headers=headers
+    )
+    assert allowed.status_code == 200
+    assert len(fake_api.last.content) == 2 * 1024 * 1024
+    assert fake_api.last.headers["content-type"] == "audio/webm"
+
+    calls = len(fake_api.requests)
+    refused = client.post(
+        "/bff/api/v1/assistant/transcribe", content=b"x" * (9 * 1024 * 1024), headers=headers
+    )
+    assert refused.status_code == 413
+    assert len(fake_api.requests) == calls
+
+
+def test_the_larger_limit_is_for_recordings_only(client: TestClient, fake_api: FakeApi) -> None:
+    csrf = sign_in(client)
+    calls = len(fake_api.requests)
+    for path in ("tasks", "assistant/chats"):
+        response = client.post(
+            f"/bff/api/v1/{path}", content=b"x" * (2 * 1024 * 1024), headers={"X-CSRF-Token": csrf}
+        )
+        assert response.status_code == 413
+    assert len(fake_api.requests) == calls
+
+
+def test_the_assistant_gets_longer_to_answer(client: TestClient, fake_api: FakeApi) -> None:
+    sign_in(client)
+
+    client.get("/bff/api/v1/assistant/status")
+    assistant = fake_api.last.extensions["timeout"]
+    client.get("/bff/api/v1/me")
+    other = fake_api.last.extensions["timeout"]
+
+    assert assistant["read"] == 90
+    assert other["read"] == 30
 
 
 def test_a_day_old_cookie_is_reissued_for_an_active_user(client: TestClient) -> None:

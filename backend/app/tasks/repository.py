@@ -401,6 +401,13 @@ async def get_task(db: AsyncSession, task_id: UUID) -> Task | None:
     return await db.get(Task, task_id)
 
 
+async def deleted_flags(db: AsyncSession, task_ids: Collection[UUID]) -> dict[UUID, bool]:
+    rows = await db.execute(
+        select(Task.id, Task.deleted_at.is_not(None)).where(Task.id.in_(task_ids))
+    )
+    return dict(rows.all())
+
+
 async def lock_task(db: AsyncSession, task_id: UUID) -> Task | None:
     return await db.scalar(
         select(Task)

@@ -44,3 +44,9 @@
   justify-content: space-between;
   gap: var(--space-3);
 }
+
+.inlineFooter {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}

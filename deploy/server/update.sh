@@ -111,6 +111,12 @@ write_env_template() {
       echo "# Caddy writes the real client address to X-Forwarded-For."
       echo "TRUST_FORWARDED_FOR=true"
       echo
+      echo "# Assistant: OpenAI-compatible servers. An empty LLM_URL hides the assistant."
+      echo "LLM_URL=http://192.168.0.105:8081/v1"
+      echo "LLM_MODEL="
+      echo "STT_URL=http://192.168.0.105:8082/v1"
+      echo "STT_MODEL=Systran/faster-whisper-medium"
+      echo
       echo "# LAN address of this server: the API port is published on it only. Fill it in."
       echo "LAN_IP="
       echo

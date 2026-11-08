@@ -3,6 +3,22 @@
 name: planny-e2e
 
 services:
+  # The language model and the speech recognition, which the tests must not need a real server for.
+  fake-inference:
+    image: python:3.14-slim
+    command: ["python", "-I", "/fake_inference.py"]
+    volumes:
+      - ./e2e/fake_inference.py:/fake_inference.py:ro
+    networks: [backend]
+
+  api:
+    environment:
+      PLANNY_LLM_URL: http://fake-inference:8000/v1
+      PLANNY_STT_URL: http://fake-inference:8000/v1
+    depends_on:
+      fake-inference:
+        condition: service_started
+
   bff:
     environment:
       # Every browser of a run logs in from one address, and each test makes its own users.

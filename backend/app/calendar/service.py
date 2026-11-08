@@ -113,6 +113,11 @@ async def get_event(principal: Principal, db: AsyncSession, event_id: UUID) -> s
     return await _event_out(principal, db, event, category_id)
 
 
+async def deleted_flags(db: AsyncSession, event_ids: Collection[UUID]) -> dict[UUID, bool]:
+    """For ids that name an event: whether it is deleted. Other ids are absent from the result."""
+    return await repository.deleted_flags(db, event_ids)
+
+
 async def _period(principal: Principal, db: AsyncSession, params: schemas.PeriodParams) -> Period:
     timezone = await identity.timezone_of(principal, db)
     return period_of(params.period_start, params.period_end, timezone)
